@@ -9,6 +9,7 @@ AresPrism uses its own SemVer. It does not continue ClaudePrism’s 1.x numbers.
 | **0.2.1** | Zotero items under folders; toolbar overflow menu on every workspace bar |
 | **0.2.2** | Overflow menus keep the original toolbar icons |
 | **0.3.0** | Settings: app/editor fonts and sizes; LaTeX compiler defaults |
+| **0.4.0** | 护眼 theme, floating preview/AI, citation file setting, Git panel |
 | 0.x.y | Ongoing work. Patch `y` for fixes; minor `x` for user-visible features |
 | 1.0.0 | When this app is the daily driver for paper writing |
 

@@ -12,7 +12,13 @@ import {
   type ZoteroLocalItemDetail,
 } from "@/lib/zotero-local";
 import { useDocumentStore } from "@/stores/document-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { createFileOnDisk } from "@/lib/tauri/fs";
+import {
+  citationFormatForFile,
+  convertCitation,
+  isCitationFileName,
+} from "@/lib/citation-file";
 import { createLogger } from "@/lib/debug/logger";
 import { STORAGE_KEYS } from "@/lib/app-identity";
 
@@ -95,10 +101,20 @@ async function writeBibToProject(
 ): Promise<ZoteroImportUndo> {
   const docStore = useDocumentStore.getState();
   if (!docStore.projectRoot) {
-    throw new Error("Open a project before importing BibTeX.");
+    throw new Error("Open a project before importing citations.");
   }
-  const existingFile = docStore.files.find((f) => f.name === bibFileName);
-  if (existingFile) {
+  const configured = useSettingsStore.getState().citationFile.trim();
+  const targetName = configured || bibFileName;
+  if (!isCitationFileName(targetName)) {
+    throw new Error(
+      `Citation file must be .bib, .bibtex, .json, .ris, or .enw (got "${targetName}").`,
+    );
+  }
+  const format = citationFormatForFile(targetName);
+  const existingFile = docStore.files.find(
+    (f) => f.name === targetName || f.relativePath === targetName,
+  );
+  if (existingFile && format === "bibtex") {
     const current = existingFile.content ?? "";
     const entries = parseBibEntries(current);
     for (const [key, entry] of parseBibEntries(bibtex)) {
@@ -114,19 +130,28 @@ async function writeBibToProject(
       created: false,
     };
   }
-  const content = bibtex.endsWith("\n") ? bibtex : `${bibtex}\n`;
+  const converted = convertCitation(bibtex, format);
+  if (existingFile) {
+    const current = existingFile.content ?? "";
+    docStore.updateFileContent(existingFile.id, converted);
+    return {
+      fileId: existingFile.id,
+      previousContent: current,
+      created: false,
+    };
+  }
   const fullPath = await createFileOnDisk(
     docStore.projectRoot,
-    bibFileName,
-    content,
+    targetName,
+    converted,
   );
   const fileId = docStore.addFile(
     {
-      name: bibFileName,
-      relativePath: bibFileName,
+      name: targetName.split(/[/\\]/).pop() || targetName,
+      relativePath: targetName,
       absolutePath: fullPath,
       type: "bib",
-      content,
+      content: converted,
     },
     { activate: false },
   );

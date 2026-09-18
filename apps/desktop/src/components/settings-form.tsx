@@ -1,5 +1,5 @@
 import { useTheme } from "next-themes";
-import { MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
+import { LeafIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -9,6 +9,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useDocumentStore } from "@/stores/document-store";
+import { isCitationFileName } from "@/lib/citation-file";
 import { EDITOR_FONT_OPTIONS, UI_FONT_OPTIONS } from "@/lib/appearance";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +34,7 @@ export function AppearanceSettings() {
               ["system", "System", MonitorIcon],
               ["light", "Light", SunIcon],
               ["dark", "Dark", MoonIcon],
+              ["warm", "护眼", LeafIcon],
             ] as const
           ).map(([value, label, Icon]) => (
             <button
@@ -72,7 +75,7 @@ export function AppearanceSettings() {
         label="App size"
         value={uiFontSize}
         min={12}
-        max={18}
+        max={28}
         onChange={setUiFontSize}
       />
       <Field label="Editor font">
@@ -127,6 +130,10 @@ export function LatexSettings() {
   const setDefaultEngine = useSettingsStore((s) => s.setDefaultEngine);
   const vimMode = useSettingsStore((s) => s.vimMode);
   const setVimMode = useSettingsStore((s) => s.setVimMode);
+  const citationFile = useSettingsStore((s) => s.citationFile);
+  const setCitationFile = useSettingsStore((s) => s.setCitationFile);
+  const files = useDocumentStore((s) => s.files);
+  const citationFiles = files.filter((f) => isCitationFileName(f.name));
 
   return (
     <div className="space-y-5">
@@ -162,6 +169,27 @@ export function LatexSettings() {
         </Select>
         <p className="text-[11px] text-muted-foreground">
           Used when the file has no % !TEX program comment.
+        </p>
+      </Field>
+      <Field label="Citation file">
+        <Select value={citationFile} onValueChange={(v) => setCitationFile(v)}>
+          <SelectTrigger className="h-8 w-full text-xs">
+            <SelectValue placeholder="references.bib" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="references.bib">references.bib</SelectItem>
+            {citationFiles
+              .filter((f) => f.relativePath !== "references.bib")
+              .map((f) => (
+                <SelectItem key={f.id} value={f.relativePath}>
+                  {f.relativePath}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] text-muted-foreground">
+          Zotero import writes here. Allowed: .bib, .bibtex, .json (CSL), .ris,
+          .enw.
         </p>
       </Field>
       <Field label="Editor">

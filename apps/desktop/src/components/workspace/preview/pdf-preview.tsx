@@ -14,6 +14,7 @@ import {
   ChevronUpIcon,
   ChevronDownIcon,
   MoreHorizontalIcon,
+  PictureInPicture2Icon,
 } from "lucide-react";
 import { writeFile, mkdir, exists } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
@@ -27,6 +28,7 @@ import {
 import { useHistoryStore } from "@/stores/history-store";
 import { useClaudeChatStore } from "@/stores/claude-chat-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useLayoutStore } from "@/stores/layout-store";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -99,6 +101,8 @@ export function PdfPreview() {
   const setCompilerBackend = useSettingsStore((s) => s.setCompilerBackend);
   const defaultEngine = useSettingsStore((s) => s.defaultEngine);
   const setDefaultEngine = useSettingsStore((s) => s.setDefaultEngine);
+  const previewFloating = useLayoutStore((s) => s.previewFloating);
+  const setPreviewFloating = useLayoutStore((s) => s.setPreviewFloating);
   const pdfRevision = useDocumentStore((s) => s.pdfRevision);
   const compileError = useDocumentStore((s) => s.compileError);
   const isCompiling = useDocumentStore((s) => s.isCompiling);
@@ -1050,6 +1054,15 @@ export function PdfPreview() {
               </div>
             </>
           )}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="size-6 shrink-0 shadow-none outline-none ring-0 hover:bg-muted/70 focus-visible:ring-0"
+            title={previewFloating ? "Dock preview" : "Float preview"}
+            onClick={() => setPreviewFloating(!previewFloating)}
+          >
+            <PictureInPicture2Icon className="size-3.5" />
+          </Button>
           <Popover>
             <PopoverTrigger asChild>
               <Button

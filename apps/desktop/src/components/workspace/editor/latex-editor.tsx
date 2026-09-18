@@ -165,6 +165,7 @@ export function LatexEditor() {
   // Only explicit dismiss/send/action should clear the toolbar.
   const toolbarStickyRef = useRef(false);
   const parentRef = useRef<HTMLDivElement>(null);
+  const [editorHost, setEditorHost] = useState<HTMLDivElement | null>(null);
 
   const { resolvedTheme } = useTheme();
   const vimMode = useSettingsStore((s) => s.vimMode);
@@ -1219,182 +1220,186 @@ export function LatexEditor() {
           </div>
         </div>
       )}
-      {/* Main content area — single wrapper keeps ClaudeChatDrawer stable */}
-      <div
-        ref={isPdf || isImage ? undefined : parentRef}
-        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
-      >
-        {/* PDF content */}
-        {isPdf && activeFile && (
-          <InlinePdfContent
-            file={activeFile}
-            imageScale={imageScale}
-            onImageScaleChange={setImageScale}
-          />
-        )}
-        {/* Image content */}
-        {isImage && activeFile && (
-          <ImagePreview
-            file={activeFile}
-            scale={imageScale}
-            onScaleChange={setImageScale}
-            cropMode={cropMode}
-            onCropModeChange={setCropMode}
-          />
-        )}
-        {/* Large file warning */}
-        {isLargeFileNotLoaded && activeFile && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-            <div className="max-w-md rounded-lg border border-border bg-card/50 p-6 shadow-sm">
-              <p className="mb-1 font-medium text-foreground text-sm">
-                {activeFile.name}
-              </p>
-              <p className="mb-4 text-muted-foreground text-xs">
-                This file is large (
-                {activeFile.fileSize != null
-                  ? `${(activeFile.fileSize / (1024 * 1024)).toFixed(1)} MB`
-                  : "unknown size"}
-                ). Opening it may slow down the editor.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => loadFileContent(activeFile.id)}
-              >
-                Open Anyway
-              </Button>
-            </div>
-          </div>
-        )}
-        {/* Text editor content */}
-        {!isPdf && !isImage && !isLargeFileNotLoaded && (
-          <>
-            <div
-              ref={containerRef}
-              className={
-                reviewingSnapshot
-                  ? "hidden"
-                  : "absolute inset-0 overflow-hidden overscroll-contain"
-              }
+      {/* Main content area — editor + optional docked AI */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div
+          ref={(el) => {
+            if (!isPdf && !isImage) parentRef.current = el;
+            setEditorHost(el);
+          }}
+          className="relative min-h-0 flex-1 overflow-hidden"
+        >
+          {/* PDF content */}
+          {isPdf && activeFile && (
+            <InlinePdfContent
+              file={activeFile}
+              imageScale={imageScale}
+              onImageScaleChange={setImageScale}
             />
-            {reviewingSnapshot && historyDiffResult && (
-              <HistoryDiffView diffs={historyDiffResult} />
-            )}
-            {toolbarPosition &&
-              selectionLabel &&
-              !isMergeActiveRef.current &&
-              !isSearchOpen && (
-                <SelectionToolbar
-                  position={toolbarPosition}
-                  contextLabel={selectionLabel}
-                  actions={editorToolbarActions}
-                  onSendPrompt={handleToolbarSendPrompt}
-                  onAction={handleToolbarAction}
-                  onDismiss={handleToolbarDismiss}
-                />
-              )}
-            {activeFileChange && mergeChunkInfo.total > 0 && (
-              <div className="absolute top-3 right-3 z-20 flex items-center gap-1 rounded-lg border border-border bg-background/95 px-2 py-1 shadow-lg backdrop-blur-sm">
-                <span className="px-1 font-mono text-muted-foreground text-xs">
-                  ±&nbsp;{mergeChunkInfo.current}/{mergeChunkInfo.total}
-                </span>
-                <div className="mx-0.5 h-4 w-px bg-border" />
-                <button
-                  onClick={() =>
-                    goToChunk(
-                      mergeChunkInfo.current <= 1
-                        ? mergeChunkInfo.total - 1
-                        : mergeChunkInfo.current - 2,
-                    )
-                  }
-                  className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
-                  title="Previous change"
-                  aria-label="Previous change"
+          )}
+          {/* Image content */}
+          {isImage && activeFile && (
+            <ImagePreview
+              file={activeFile}
+              scale={imageScale}
+              onScaleChange={setImageScale}
+              cropMode={cropMode}
+              onCropModeChange={setCropMode}
+            />
+          )}
+          {/* Large file warning */}
+          {isLargeFileNotLoaded && activeFile && (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+              <div className="max-w-md rounded-lg border border-border bg-card/50 p-6 shadow-sm">
+                <p className="mb-1 font-medium text-foreground text-sm">
+                  {activeFile.name}
+                </p>
+                <p className="mb-4 text-muted-foreground text-xs">
+                  This file is large (
+                  {activeFile.fileSize != null
+                    ? `${(activeFile.fileSize / (1024 * 1024)).toFixed(1)} MB`
+                    : "unknown size"}
+                  ). Opening it may slow down the editor.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadFileContent(activeFile.id)}
                 >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="18 15 12 9 6 15" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() =>
-                    goToChunk(
-                      mergeChunkInfo.current >= mergeChunkInfo.total
-                        ? 0
-                        : mergeChunkInfo.current,
-                    )
-                  }
-                  className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
-                  title="Next change"
-                  aria-label="Next change"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
-                <div className="mx-0.5 h-4 w-px bg-border" />
-                <button
-                  onClick={acceptCurrentChunk}
-                  className="rounded p-0.5 text-green-400 transition-colors hover:bg-green-600/20"
-                  title="Accept this change"
-                  aria-label="Accept this change"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                </button>
-                <button
-                  onClick={rejectCurrentChunk}
-                  className="rounded p-0.5 text-red-400 transition-colors hover:bg-red-600/20"
-                  title="Reject this change"
-                  aria-label="Reject this change"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+                  Open Anyway
+                </Button>
               </div>
-            )}
-          </>
-        )}
-        {/* Chat drawer — single stable instance across all file types */}
-        <ClaudeChatDrawer />
+            </div>
+          )}
+          {/* Text editor content */}
+          {!isPdf && !isImage && !isLargeFileNotLoaded && (
+            <>
+              <div
+                ref={containerRef}
+                className={
+                  reviewingSnapshot
+                    ? "hidden"
+                    : "absolute inset-0 overflow-hidden overscroll-contain"
+                }
+              />
+              {reviewingSnapshot && historyDiffResult && (
+                <HistoryDiffView diffs={historyDiffResult} />
+              )}
+              {toolbarPosition &&
+                selectionLabel &&
+                !isMergeActiveRef.current &&
+                !isSearchOpen && (
+                  <SelectionToolbar
+                    position={toolbarPosition}
+                    contextLabel={selectionLabel}
+                    actions={editorToolbarActions}
+                    onSendPrompt={handleToolbarSendPrompt}
+                    onAction={handleToolbarAction}
+                    onDismiss={handleToolbarDismiss}
+                  />
+                )}
+              {activeFileChange && mergeChunkInfo.total > 0 && (
+                <div className="absolute top-3 right-3 z-20 flex items-center gap-1 rounded-lg border border-border bg-background/95 px-2 py-1 shadow-lg backdrop-blur-sm">
+                  <span className="px-1 font-mono text-muted-foreground text-xs">
+                    ±&nbsp;{mergeChunkInfo.current}/{mergeChunkInfo.total}
+                  </span>
+                  <div className="mx-0.5 h-4 w-px bg-border" />
+                  <button
+                    onClick={() =>
+                      goToChunk(
+                        mergeChunkInfo.current <= 1
+                          ? mergeChunkInfo.total - 1
+                          : mergeChunkInfo.current - 2,
+                      )
+                    }
+                    className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                    title="Previous change"
+                    aria-label="Previous change"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="18 15 12 9 6 15" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() =>
+                      goToChunk(
+                        mergeChunkInfo.current >= mergeChunkInfo.total
+                          ? 0
+                          : mergeChunkInfo.current,
+                      )
+                    }
+                    className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                    title="Next change"
+                    aria-label="Next change"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  <div className="mx-0.5 h-4 w-px bg-border" />
+                  <button
+                    onClick={acceptCurrentChunk}
+                    className="rounded p-0.5 text-green-400 transition-colors hover:bg-green-600/20"
+                    title="Accept this change"
+                    aria-label="Accept this change"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={rejectCurrentChunk}
+                    className="rounded p-0.5 text-red-400 transition-colors hover:bg-red-600/20"
+                    title="Reject this change"
+                    aria-label="Reject this change"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <ClaudeChatDrawer editorEl={editorHost} />
       </div>
       {/* Text-editor-only bottom panels */}
       {!isPdf &&

@@ -111,6 +111,20 @@ const OPENAI_COMPATIBLE_PRESETS: OpenAICompatiblePreset[] = [
     note: "Zhipu BigModel chat completions endpoint.",
   },
   {
+    id: "openrouter",
+    label: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "",
+    note: "OpenRouter OpenAI-compatible endpoint.",
+  },
+  {
+    id: "siliconflow",
+    label: "SiliconFlow",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    model: "",
+    note: "SiliconFlow (硅基流动) OpenAI-compatible endpoint.",
+  },
+  {
     id: "ollama",
     label: "Ollama",
     baseUrl: "http://localhost:11434/v1",

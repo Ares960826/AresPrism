@@ -100,10 +100,6 @@ export function ZoteroPanel() {
                 {error}
               </div>
             )}
-            <p className="px-2 pb-1 text-[10px] text-muted-foreground">
-              Expand a folder to see papers. Cite inserts at the cursor. Import
-              BibTeX is in the folder menu.
-            </p>
             <CollectionBranch
               name="My Library"
               icon={<LibraryIcon className="size-3.5" />}

@@ -9,6 +9,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { useHistoryStore, type SnapshotInfo } from "@/stores/history-store";
+import { GitPanel } from "@/components/workspace/git-panel";
 import { useDocumentStore } from "@/stores/document-store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -111,6 +112,7 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
     return result;
   }, [snapshots]);
 
+  const [tab, setTab] = useState<"snapshots" | "git">("git");
   const [labelDialogOpen, setLabelDialogOpen] = useState(false);
   const [labelTargetId, setLabelTargetId] = useState<string | null>(null);
   const [labelValue, setLabelValue] = useState("");
@@ -197,44 +199,72 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <div className="flex items-center gap-2">
           <HistoryIcon className="size-4 text-muted-foreground" />
-          <span className="font-medium text-sm">History</span>
+          <span className="font-medium text-sm">Versions</span>
+        </div>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            className={cn(
+              "rounded px-2 py-0.5 text-[11px]",
+              tab === "git" ? "bg-accent" : "text-muted-foreground",
+            )}
+            onClick={() => setTab("git")}
+          >
+            Git
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "rounded px-2 py-0.5 text-[11px]",
+              tab === "snapshots" ? "bg-accent" : "text-muted-foreground",
+            )}
+            onClick={() => setTab("snapshots")}
+          >
+            Snapshots
+          </button>
         </div>
       </div>
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto"
-        onScroll={handleScroll}
-      >
-        {linearSnapshots.length === 0 && !isLoading ? (
-          <div className="px-3 py-4 text-center text-muted-foreground text-xs">
-            No history yet
-          </div>
-        ) : (
-          <div className="py-0.5">
-            {linearSnapshots.map((snap) => (
-              <SnapshotRow
-                key={snap.id}
-                snapshot={snap}
-                isSelected={reviewingSnapshot?.id === snap.id}
-                isRestoring={isRestoring}
-                onClick={() => handleClick(snap)}
-                onRestore={() => handleRestore(snap.id)}
-                onAddLabel={() => openLabelDialog(snap.id)}
-                onRemoveLabel={(label) =>
-                  projectRoot && removeLabel(projectRoot, label)
-                }
-                onCopySha={() => navigator.clipboard.writeText(snap.id)}
-              />
-            ))}
-          </div>
-        )}
+      {tab === "git" ? (
+        <div className="min-h-0 flex-1 overflow-auto p-2">
+          <GitPanel />
+        </div>
+      ) : (
+        <div
+          ref={scrollRef}
+          className="min-h-0 flex-1 overflow-y-auto"
+          onScroll={handleScroll}
+        >
+          {linearSnapshots.length === 0 && !isLoading ? (
+            <div className="px-3 py-4 text-center text-muted-foreground text-xs">
+              No history yet
+            </div>
+          ) : (
+            <div className="py-0.5">
+              {linearSnapshots.map((snap) => (
+                <SnapshotRow
+                  key={snap.id}
+                  snapshot={snap}
+                  isSelected={reviewingSnapshot?.id === snap.id}
+                  isRestoring={isRestoring}
+                  onClick={() => handleClick(snap)}
+                  onRestore={() => handleRestore(snap.id)}
+                  onAddLabel={() => openLabelDialog(snap.id)}
+                  onRemoveLabel={(label) =>
+                    projectRoot && removeLabel(projectRoot, label)
+                  }
+                  onCopySha={() => navigator.clipboard.writeText(snap.id)}
+                />
+              ))}
+            </div>
+          )}
 
-        {isLoading && (
-          <div className="flex items-center justify-center py-2">
-            <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-          </div>
-        )}
-      </div>
+          {isLoading && (
+            <div className="flex items-center justify-center py-2">
+              <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Label dialog */}
       <Dialog open={labelDialogOpen} onOpenChange={setLabelDialogOpen}>

@@ -16,6 +16,8 @@ import { PdfPreview } from "./preview/pdf-preview";
 import { WorkspaceResizeHandle } from "./resize-handle";
 import { useDocumentStore } from "@/stores/document-store";
 import { usePreviewStore } from "@/stores/preview-store";
+import { useLayoutStore } from "@/stores/layout-store";
+import { FloatingPane } from "./floating-pane";
 
 const SIDEBAR_DEFAULT_SIZE = 15;
 const SIDEBAR_MIN_SIZE = 10;
@@ -31,6 +33,9 @@ export function WorkspaceLayout() {
   const initialized = useDocumentStore((s) => s.initialized);
   const previewVisible = usePreviewStore((s) => s.visible);
   const setPreviewVisible = usePreviewStore((s) => s.setVisible);
+  const previewFloating = useLayoutStore((s) => s.previewFloating);
+  const setPreviewFloating = useLayoutStore((s) => s.setPreviewFloating);
+  const dockedPreview = previewVisible && !previewFloating;
   const workspaceRef = useRef<HTMLDivElement>(null);
   const sidebarPanelRef = useRef<ImperativePanelHandle>(null);
   const sidebarAnimationFrameRef = useRef<number | null>(null);
@@ -216,7 +221,7 @@ export function WorkspaceLayout() {
 
         {codeVisible && (
           <Panel
-            defaultSize={previewVisible ? 42.5 : 85}
+            defaultSize={dockedPreview ? 42.5 : 85}
             minSize={18}
             className="min-h-0 min-w-0 overflow-hidden"
           >
@@ -224,11 +229,11 @@ export function WorkspaceLayout() {
           </Panel>
         )}
 
-        {codeVisible && previewVisible && (
+        {codeVisible && dockedPreview && (
           <WorkspaceResizeHandle direction="horizontal" />
         )}
 
-        {previewVisible && (
+        {dockedPreview && (
           <Panel
             defaultSize={codeVisible ? 42.5 : 85}
             minSize={18}
@@ -238,6 +243,11 @@ export function WorkspaceLayout() {
           </Panel>
         )}
       </PanelGroup>
+      {previewFloating && previewVisible && (
+        <FloatingPane title="Preview" onDock={() => setPreviewFloating(false)}>
+          <PdfPreview />
+        </FloatingPane>
+      )}
     </div>
   );
 }

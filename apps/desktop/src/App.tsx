@@ -224,7 +224,12 @@ export function App({ onReady }: { onReady?: () => void }) {
 
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        themes={["light", "dark", "system", "warm"]}
+      >
         <TooltipProvider>
           <NativeWindowThemeBridge />
           <AppearanceBridge />

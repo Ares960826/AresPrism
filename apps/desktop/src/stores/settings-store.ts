@@ -21,6 +21,8 @@ interface SettingsState {
   setUiFontSize: (size: number) => void;
   editorFontSize: number;
   setEditorFontSize: (size: number) => void;
+  citationFile: string;
+  setCitationFile: (path: string) => void;
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
 }
@@ -42,6 +44,8 @@ export const useSettingsStore = create<SettingsState>()(
       setUiFontSize: (size) => set({ uiFontSize: size }),
       editorFontSize: 14,
       setEditorFontSize: (size) => set({ editorFontSize: size }),
+      citationFile: "references.bib",
+      setCitationFile: (path) => set({ citationFile: path }),
       settingsOpen: false,
       setSettingsOpen: (open) => set({ settingsOpen: open }),
     }),
@@ -55,6 +59,7 @@ export const useSettingsStore = create<SettingsState>()(
         editorFont: state.editorFont,
         uiFontSize: state.uiFontSize,
         editorFontSize: state.editorFontSize,
+        citationFile: state.citationFile,
       }),
     },
   ),

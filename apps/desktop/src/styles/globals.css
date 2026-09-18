@@ -115,6 +115,36 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Quiver 护眼 (豆沙绿). Opaque approximation — this app is not HUD glass. */
+.warm {
+  --background: #cfeac8;
+  --foreground: #1f2a1c;
+  --card: #d8efd2;
+  --card-foreground: #1f2a1c;
+  --popover: #d8efd2;
+  --popover-foreground: #1f2a1c;
+  --primary: #245e23;
+  --primary-foreground: #ffffff;
+  --secondary: #b7dfae;
+  --secondary-foreground: #1f2a1c;
+  --muted: #b7dfae;
+  --muted-foreground: #3b4639;
+  --accent: #a8d89e;
+  --accent-foreground: #1f2a1c;
+  --destructive: #93342c;
+  --border: #8fbc86;
+  --input: #8fbc86;
+  --ring: #245e23;
+  --sidebar: #c4e5bc;
+  --sidebar-foreground: #1f2a1c;
+  --sidebar-primary: #245e23;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #b7dfae;
+  --sidebar-accent-foreground: #1f2a1c;
+  --sidebar-border: #8fbc86;
+  --sidebar-ring: #245e23;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

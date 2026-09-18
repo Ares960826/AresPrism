@@ -10,6 +10,7 @@ mod slash_commands;
 mod uv;
 mod zotero;
 mod zotero_local;
+mod git_workspace;
 
 use std::path::Path;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -639,6 +640,10 @@ pub fn run() {
             zotero_local::zotero_local_items,
             zotero_local::zotero_local_item_detail,
             zotero_local::zotero_local_bibtex,
+            git_workspace::git_status,
+            git_workspace::git_diff_file,
+            git_workspace::git_commit,
+            git_workspace::git_log,
             history::history_init,
             history::history_snapshot,
             history::history_list,
