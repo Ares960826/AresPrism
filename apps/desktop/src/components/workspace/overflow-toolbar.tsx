@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 export interface OverflowToolbarItem {
   id: string;
   label: string;
+  icon?: ReactNode;
   sticky?: boolean;
   node: ReactNode;
   onSelect?: () => void;
@@ -102,9 +103,14 @@ export function OverflowToolbar({
                 <MoreHorizontalIcon className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="min-w-44">
               {overflowItems.map((item) => (
                 <DropdownMenuItem key={item.id} onClick={item.onSelect}>
+                  {item.icon ? (
+                    <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4">
+                      {item.icon}
+                    </span>
+                  ) : null}
                   {item.label}
                 </DropdownMenuItem>
               ))}

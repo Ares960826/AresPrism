@@ -182,6 +182,7 @@ export function EditorToolbar({
           {
             id: "zoom-out",
             label: "Zoom out",
+            icon: <MinusIcon className="size-4" />,
             onSelect: zoomOut,
             node: (
               <Button
@@ -198,6 +199,7 @@ export function EditorToolbar({
           {
             id: "zoom-in",
             label: "Zoom in",
+            icon: <PlusIcon className="size-4" />,
             onSelect: zoomIn,
             node: (
               <Button
@@ -238,6 +240,7 @@ export function EditorToolbar({
                 {
                   id: "crop",
                   label: "Crop",
+                  icon: <CropIcon className="size-4" />,
                   onSelect: onCropToggle,
                   node: (
                     <Button
@@ -318,6 +321,7 @@ export function EditorToolbar({
         {
           id: "bold",
           label: "Bold",
+          icon: <BoldIcon className="size-4" />,
           onSelect: () => insertText("\\textbf{", "}"),
           node: (
             <TooltipIconButton
@@ -331,6 +335,7 @@ export function EditorToolbar({
         {
           id: "italic",
           label: "Italic",
+          icon: <ItalicIcon className="size-4" />,
           onSelect: () => insertText("\\textit{", "}"),
           node: (
             <TooltipIconButton
@@ -344,6 +349,7 @@ export function EditorToolbar({
         {
           id: "code",
           label: "Code",
+          icon: <CodeIcon className="size-4" />,
           onSelect: () => insertText("\\texttt{", "}"),
           node: (
             <TooltipIconButton
@@ -357,6 +363,7 @@ export function EditorToolbar({
         {
           id: "section",
           label: "Section",
+          icon: <Heading1Icon className="size-4" />,
           onSelect: () => insertText("\\section{", "}"),
           node: (
             <TooltipIconButton
@@ -370,6 +377,7 @@ export function EditorToolbar({
         {
           id: "subsection",
           label: "Subsection",
+          icon: <Heading2Icon className="size-4" />,
           onSelect: () => insertText("\\subsection{", "}"),
           node: (
             <TooltipIconButton
@@ -383,6 +391,7 @@ export function EditorToolbar({
         {
           id: "item",
           label: "List item",
+          icon: <ListIcon className="size-4" />,
           onSelect: () => insertText("\\item "),
           node: (
             <TooltipIconButton
@@ -396,6 +405,7 @@ export function EditorToolbar({
         {
           id: "math-inline",
           label: "Inline math",
+          icon: <FunctionSquareIcon className="size-4" />,
           onSelect: () => wrapSelection("$"),
           node: (
             <TooltipIconButton
@@ -409,6 +419,7 @@ export function EditorToolbar({
         {
           id: "math-display",
           label: "Display math",
+          icon: <span className="font-mono text-xs">∫</span>,
           onSelect: () => insertText("\\[\n  ", "\n\\]"),
           node: (
             <TooltipIconButton
@@ -422,6 +433,7 @@ export function EditorToolbar({
         {
           id: "cite",
           label: "Citation",
+          icon: <BookMarkedIcon className="size-4" />,
           onSelect: () => insertText("\\cite{", "}"),
           node: (
             <TooltipIconButton
@@ -435,6 +447,9 @@ export function EditorToolbar({
         {
           id: "vim",
           label: "Vim mode",
+          icon: (
+            <span className="font-mono font-semibold text-[10px]">VIM</span>
+          ),
           onSelect: () => setVimMode(!vimMode),
           node: (
             <Button
