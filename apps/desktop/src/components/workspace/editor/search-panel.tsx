@@ -52,7 +52,7 @@ export function SearchPanel({
   };
 
   return (
-    <div className="flex h-9 items-center gap-2 border-border border-b bg-background px-2">
+    <div className="flex h-9 min-w-0 items-center gap-2 overflow-hidden border-border border-b bg-background px-2">
       <Input
         ref={inputRef}
         type="text"
@@ -60,7 +60,7 @@ export function SearchPanel({
         onChange={(e) => onSearchQueryChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Search..."
-        className="h-6 w-48 border-border bg-muted/40 text-foreground text-sm placeholder:text-muted-foreground"
+        className="h-6 min-w-0 flex-1 border-border bg-muted/40 text-foreground text-sm placeholder:text-muted-foreground"
       />
       <div className="flex items-center gap-0.5">
         <Button

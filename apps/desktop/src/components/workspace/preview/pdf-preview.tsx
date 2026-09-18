@@ -822,7 +822,7 @@ export function PdfPreview() {
       ref={previewContainerRef}
       className="@container/pv relative flex h-full min-w-0 flex-col overflow-hidden bg-muted/50"
     >
-      <div className="flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] min-w-0 shrink-0 items-center overflow-hidden border-border border-b bg-background px-1.5">
+      <div className="@container/pv flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] min-w-0 shrink-0 items-center overflow-hidden border-border border-b bg-background px-1.5">
         <div className="flex min-w-0 shrink items-center gap-1 overflow-hidden">
           <Select
             value={compilerBackend}

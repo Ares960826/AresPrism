@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { useDocumentStore } from "@/stores/document-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { OverflowToolbar } from "@/components/workspace/overflow-toolbar";
 
 interface EditorInfo {
   id: string;
@@ -159,65 +160,297 @@ export function EditorToolbar({
 
   if (fileType === "image") {
     return (
-      <div className="flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] min-w-0 items-center justify-between border-border border-b bg-muted/30 px-2">
-        <div className="flex min-w-0 max-w-[min(18rem,35vw)] items-center gap-1.5">
-          <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
-          <span
-            className="min-w-0 truncate font-medium text-muted-foreground text-sm"
-            title={activeFilePath ?? fileName}
-          >
-            {fileName}
-          </span>
-        </div>
-        <div className="flex-1" />
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            onClick={zoomOut}
-            disabled={imageScale <= 0.25}
-          >
-            <MinusIcon className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            onClick={zoomIn}
-            disabled={imageScale >= 4}
-          >
-            <PlusIcon className="size-3.5" />
-          </Button>
-          <Select
-            value={imageScale.toString()}
-            onValueChange={(v) => onImageScaleChange?.(Number(v))}
-          >
-            <SelectTrigger size="sm" className="h-6! w-auto text-xs">
-              <SelectValue>{Math.round(imageScale * 100)}%</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {ZOOM_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {onCropToggle && !fileName.toLowerCase().endsWith(".svg") && (
-            <>
-              <div className="mx-1 h-4 w-px bg-border" />
+      <OverflowToolbar
+        className="h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] border-border border-b bg-muted/30 px-2"
+        items={[
+          {
+            id: "name",
+            label: fileName,
+            sticky: true,
+            node: (
+              <div className="flex min-w-0 max-w-[10rem] items-center gap-1.5">
+                <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span
+                  className="min-w-0 truncate font-medium text-muted-foreground text-sm"
+                  title={activeFilePath ?? fileName}
+                >
+                  {fileName}
+                </span>
+              </div>
+            ),
+          },
+          {
+            id: "zoom-out",
+            label: "Zoom out",
+            onSelect: zoomOut,
+            node: (
               <Button
-                variant={cropMode ? "default" : "ghost"}
-                size="sm"
-                className="h-6 gap-1 px-2 text-xs"
-                onClick={onCropToggle}
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                onClick={zoomOut}
+                disabled={imageScale <= 0.25}
               >
-                <CropIcon className="size-3.5" />
-                Crop
+                <MinusIcon className="size-3.5" />
               </Button>
-            </>
-          )}
+            ),
+          },
+          {
+            id: "zoom-in",
+            label: "Zoom in",
+            onSelect: zoomIn,
+            node: (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                onClick={zoomIn}
+                disabled={imageScale >= 4}
+              >
+                <PlusIcon className="size-3.5" />
+              </Button>
+            ),
+          },
+          {
+            id: "zoom",
+            label: "Zoom",
+            sticky: true,
+            node: (
+              <Select
+                value={imageScale.toString()}
+                onValueChange={(v) => onImageScaleChange?.(Number(v))}
+              >
+                <SelectTrigger size="sm" className="h-6! w-auto text-xs">
+                  <SelectValue>{Math.round(imageScale * 100)}%</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ZOOM_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ),
+          },
+          ...(onCropToggle && !fileName.toLowerCase().endsWith(".svg")
+            ? [
+                {
+                  id: "crop",
+                  label: "Crop",
+                  onSelect: onCropToggle,
+                  node: (
+                    <Button
+                      variant={cropMode ? "default" : "ghost"}
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-xs"
+                      onClick={onCropToggle}
+                    >
+                      <CropIcon className="size-3.5" />
+                      Crop
+                    </Button>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+        trailing={
+          <>
+            {editors.length === 1 && (
+              <TooltipIconButton
+                tooltip={`Open in ${editors[0].name}`}
+                onClick={() => openInEditor(editors[0].id)}
+                className={getOpenEditorButtonClassName(editors[0])}
+              >
+                <OpenEditorIcon editor={editors[0]} />
+              </TooltipIconButton>
+            )}
+            {editors.length > 1 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 p-1"
+                    title="Open in Editor"
+                  >
+                    <ExternalLinkIcon className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {editors.map((editor) => (
+                    <DropdownMenuItem
+                      key={editor.id}
+                      onClick={() => openInEditor(editor.id)}
+                    >
+                      {editor.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </>
+        }
+      />
+    );
+  }
+
+  return (
+    <OverflowToolbar
+      className="h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] border-border border-b bg-muted/30 px-2"
+      items={[
+        {
+          id: "name",
+          label: fileName,
+          sticky: true,
+          node: (
+            <div className="flex min-w-0 max-w-[10rem] items-center gap-1.5">
+              <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+              <span
+                className="min-w-0 truncate font-medium text-muted-foreground text-sm"
+                title={activeFilePath ?? fileName}
+              >
+                {fileName}
+              </span>
+            </div>
+          ),
+        },
+        {
+          id: "bold",
+          label: "Bold",
+          onSelect: () => insertText("\\textbf{", "}"),
+          node: (
+            <TooltipIconButton
+              tooltip="Bold (\\textbf)"
+              onClick={() => insertText("\\textbf{", "}")}
+            >
+              <BoldIcon className="size-4" />
+            </TooltipIconButton>
+          ),
+        },
+        {
+          id: "italic",
+          label: "Italic",
+          onSelect: () => insertText("\\textit{", "}"),
+          node: (
+            <TooltipIconButton
+              tooltip="Italic (\\textit)"
+              onClick={() => insertText("\\textit{", "}")}
+            >
+              <ItalicIcon className="size-4" />
+            </TooltipIconButton>
+          ),
+        },
+        {
+          id: "code",
+          label: "Code",
+          onSelect: () => insertText("\\texttt{", "}"),
+          node: (
+            <TooltipIconButton
+              tooltip="Code (\\texttt)"
+              onClick={() => insertText("\\texttt{", "}")}
+            >
+              <CodeIcon className="size-4" />
+            </TooltipIconButton>
+          ),
+        },
+        {
+          id: "section",
+          label: "Section",
+          onSelect: () => insertText("\\section{", "}"),
+          node: (
+            <TooltipIconButton
+              tooltip="Section"
+              onClick={() => insertText("\\section{", "}")}
+            >
+              <Heading1Icon className="size-4" />
+            </TooltipIconButton>
+          ),
+        },
+        {
+          id: "subsection",
+          label: "Subsection",
+          onSelect: () => insertText("\\subsection{", "}"),
+          node: (
+            <TooltipIconButton
+              tooltip="Subsection"
+              onClick={() => insertText("\\subsection{", "}")}
+            >
+              <Heading2Icon className="size-4" />
+            </TooltipIconButton>
+          ),
+        },
+        {
+          id: "item",
+          label: "List item",
+          onSelect: () => insertText("\\item "),
+          node: (
+            <TooltipIconButton
+              tooltip="List item"
+              onClick={() => insertText("\\item ")}
+            >
+              <ListIcon className="size-4" />
+            </TooltipIconButton>
+          ),
+        },
+        {
+          id: "math-inline",
+          label: "Inline math",
+          onSelect: () => wrapSelection("$"),
+          node: (
+            <TooltipIconButton
+              tooltip="Inline math ($...$)"
+              onClick={() => wrapSelection("$")}
+            >
+              <FunctionSquareIcon className="size-4" />
+            </TooltipIconButton>
+          ),
+        },
+        {
+          id: "math-display",
+          label: "Display math",
+          onSelect: () => insertText("\\[\n  ", "\n\\]"),
+          node: (
+            <TooltipIconButton
+              tooltip="Display math (\\[...\\])"
+              onClick={() => insertText("\\[\n  ", "\n\\]")}
+            >
+              <span className="font-mono text-xs">∫</span>
+            </TooltipIconButton>
+          ),
+        },
+        {
+          id: "cite",
+          label: "Citation",
+          onSelect: () => insertText("\\cite{", "}"),
+          node: (
+            <TooltipIconButton
+              tooltip="Citation (\\cite)"
+              onClick={() => insertText("\\cite{", "}")}
+            >
+              <BookMarkedIcon className="size-4" />
+            </TooltipIconButton>
+          ),
+        },
+        {
+          id: "vim",
+          label: "Vim mode",
+          onSelect: () => setVimMode(!vimMode),
+          node: (
+            <Button
+              variant={vimMode ? "default" : "ghost"}
+              size="sm"
+              className="h-6 px-2 font-mono text-xs"
+              onClick={() => setVimMode(!vimMode)}
+              title="Toggle Vim mode"
+            >
+              VIM
+            </Button>
+          ),
+        },
+      ]}
+      trailing={
+        <>
           {editors.length === 1 && (
             <TooltipIconButton
               tooltip={`Open in ${editors[0].name}`}
@@ -251,124 +484,8 @@ export function EditorToolbar({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] min-w-0 items-center gap-1 overflow-hidden border-border border-b bg-muted/30 px-2">
-      <div className="flex min-w-0 max-w-[min(18rem,35vw)] shrink items-center gap-1.5">
-        <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span
-          className="min-w-0 truncate font-medium text-muted-foreground text-sm"
-          title={activeFilePath ?? fileName}
-        >
-          {fileName}
-        </span>
-      </div>
-      <div className="mx-2 h-4 w-px shrink-0 bg-border" />
-      <TooltipIconButton
-        tooltip="Bold (\\textbf)"
-        onClick={() => insertText("\\textbf{", "}")}
-      >
-        <BoldIcon className="size-4" />
-      </TooltipIconButton>
-      <TooltipIconButton
-        tooltip="Italic (\\textit)"
-        onClick={() => insertText("\\textit{", "}")}
-      >
-        <ItalicIcon className="size-4" />
-      </TooltipIconButton>
-      <TooltipIconButton
-        tooltip="Code (\\texttt)"
-        onClick={() => insertText("\\texttt{", "}")}
-      >
-        <CodeIcon className="size-4" />
-      </TooltipIconButton>
-      <div className="mx-2 h-4 w-px bg-border" />
-      <TooltipIconButton
-        tooltip="Section"
-        onClick={() => insertText("\\section{", "}")}
-      >
-        <Heading1Icon className="size-4" />
-      </TooltipIconButton>
-      <TooltipIconButton
-        tooltip="Subsection"
-        onClick={() => insertText("\\subsection{", "}")}
-      >
-        <Heading2Icon className="size-4" />
-      </TooltipIconButton>
-      <TooltipIconButton
-        tooltip="List item"
-        onClick={() => insertText("\\item ")}
-      >
-        <ListIcon className="size-4" />
-      </TooltipIconButton>
-      <div className="mx-2 h-4 w-px bg-border" />
-      <TooltipIconButton
-        tooltip="Inline math ($...$)"
-        onClick={() => wrapSelection("$")}
-      >
-        <FunctionSquareIcon className="size-4" />
-      </TooltipIconButton>
-      <TooltipIconButton
-        tooltip="Display math (\\[...\\])"
-        onClick={() => insertText("\\[\n  ", "\n\\]")}
-      >
-        <span className="font-mono text-xs">∫</span>
-      </TooltipIconButton>
-      <div className="mx-2 h-4 w-px bg-border" />
-      <TooltipIconButton
-        tooltip="Citation (\\cite)"
-        onClick={() => insertText("\\cite{", "}")}
-      >
-        <BookMarkedIcon className="size-4" />
-      </TooltipIconButton>
-      <div className="mx-2 h-4 w-px bg-border" />
-      <Button
-        variant={vimMode ? "default" : "ghost"}
-        size="sm"
-        className="h-6 px-2 font-mono text-xs"
-        onClick={() => setVimMode(!vimMode)}
-        title="Toggle Vim mode"
-      >
-        VIM
-      </Button>
-      <div data-tauri-drag-region className="flex-1 self-stretch" />
-      {editors.length === 1 && (
-        <TooltipIconButton
-          tooltip={`Open in ${editors[0].name}`}
-          onClick={() => openInEditor(editors[0].id)}
-          className={getOpenEditorButtonClassName(editors[0])}
-        >
-          <OpenEditorIcon editor={editors[0]} />
-        </TooltipIconButton>
-      )}
-      {editors.length > 1 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-6 p-1"
-              title="Open in Editor"
-            >
-              <ExternalLinkIcon className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {editors.map((editor) => (
-              <DropdownMenuItem
-                key={editor.id}
-                onClick={() => openInEditor(editor.id)}
-              >
-                {editor.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </div>
+        </>
+      }
+    />
   );
 }

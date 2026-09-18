@@ -55,6 +55,12 @@ function parseBibEntries(content: string): Map<string, string> {
   return entries;
 }
 
+export interface ZoteroImportUndo {
+  fileId: string;
+  previousContent: string | null;
+  created: boolean;
+}
+
 interface ZoteroState {
   dataDir: string | null;
   isConnected: boolean;
@@ -63,25 +69,30 @@ interface ZoteroState {
   isLoadingItems: boolean;
   error: string | null;
   collections: ZoteroCollectionNode[];
-  items: ZoteroLocalItem[];
+  itemsByCollection: Record<string, ZoteroLocalItem[]>;
   activeCollectionKey: string | null;
   preview: ZoteroLocalItemDetail | null;
   syncedCollections: ProjectSyncedCollections;
   isSyncing: string | null;
+  lastImport: ZoteroImportUndo | null;
 
   connectLocal: (dataDir?: string | null) => Promise<boolean>;
   disconnect: () => void;
   refresh: () => Promise<void>;
-  selectCollection: (collectionKey: string | null) => Promise<void>;
+  ensureItems: (collectionKey: string | null) => Promise<void>;
   previewItem: (itemKey: string) => Promise<void>;
   importCollectionToBib: (
     collectionKey: string | null,
     name: string,
   ) => Promise<void>;
   importItemToBib: (itemKey: string, citekey: string) => Promise<void>;
+  undoLastImport: () => Promise<void>;
 }
 
-async function writeBibToProject(bibFileName: string, bibtex: string) {
+async function writeBibToProject(
+  bibFileName: string,
+  bibtex: string,
+): Promise<ZoteroImportUndo> {
   const docStore = useDocumentStore.getState();
   if (!docStore.projectRoot) {
     throw new Error("Open a project before importing BibTeX.");
@@ -97,20 +108,29 @@ async function writeBibToProject(bibFileName: string, bibtex: string) {
       existingFile.id,
       `${Array.from(entries.values()).join("\n\n")}\n`,
     );
-    return;
+    return {
+      fileId: existingFile.id,
+      previousContent: current,
+      created: false,
+    };
   }
+  const content = bibtex.endsWith("\n") ? bibtex : `${bibtex}\n`;
   const fullPath = await createFileOnDisk(
     docStore.projectRoot,
     bibFileName,
-    bibtex.endsWith("\n") ? bibtex : `${bibtex}\n`,
+    content,
   );
-  docStore.addFile({
-    name: bibFileName,
-    relativePath: bibFileName,
-    absolutePath: fullPath,
-    type: "tex",
-    content: bibtex,
-  });
+  const fileId = docStore.addFile(
+    {
+      name: bibFileName,
+      relativePath: bibFileName,
+      absolutePath: fullPath,
+      type: "bib",
+      content,
+    },
+    { activate: false },
+  );
+  return { fileId, previousContent: null, created: true };
 }
 
 export const useZoteroStore = create<ZoteroState>()(
@@ -123,11 +143,12 @@ export const useZoteroStore = create<ZoteroState>()(
       isLoadingItems: false,
       error: null,
       collections: [],
-      items: [],
+      itemsByCollection: {},
       activeCollectionKey: null,
       preview: null,
       syncedCollections: {},
       isSyncing: null,
+      lastImport: null,
 
       connectLocal: async (dataDir) => {
         set({ isOpening: true, error: null });
@@ -148,8 +169,7 @@ export const useZoteroStore = create<ZoteroState>()(
             isLoadingTree: true,
           });
           const collections = await zoteroLocalTree();
-          set({ collections, isLoadingTree: false });
-          await get().selectCollection(null);
+          set({ collections, isLoadingTree: false, itemsByCollection: {} });
           return true;
         } catch (err) {
           set({
@@ -165,10 +185,11 @@ export const useZoteroStore = create<ZoteroState>()(
         set({
           isConnected: false,
           collections: [],
-          items: [],
+          itemsByCollection: {},
           preview: null,
           activeCollectionKey: null,
           error: null,
+          lastImport: null,
         });
       },
 
@@ -192,8 +213,7 @@ export const useZoteroStore = create<ZoteroState>()(
           }
           const collections = await zoteroLocalTree();
           log.debug(`Loaded ${collections.length} top-level collections`);
-          set({ collections, isLoadingTree: false });
-          await get().selectCollection(get().activeCollectionKey);
+          set({ collections, isLoadingTree: false, itemsByCollection: {} });
         } catch (err) {
           set({
             isLoadingTree: false,
@@ -202,7 +222,8 @@ export const useZoteroStore = create<ZoteroState>()(
         }
       },
 
-      selectCollection: async (collectionKey) => {
+      ensureItems: async (collectionKey) => {
+        const key = storeKey(collectionKey);
         set({
           activeCollectionKey: collectionKey,
           isLoadingItems: true,
@@ -210,7 +231,10 @@ export const useZoteroStore = create<ZoteroState>()(
         });
         try {
           const items = await zoteroLocalItems(collectionKey);
-          set({ items, isLoadingItems: false });
+          set((s) => ({
+            itemsByCollection: { ...s.itemsByCollection, [key]: items },
+            isLoadingItems: false,
+          }));
         } catch (err) {
           set({
             isLoadingItems: false,
@@ -241,7 +265,7 @@ export const useZoteroStore = create<ZoteroState>()(
         try {
           const bibtex = await zoteroLocalBibtex({ collectionKey });
           const bibFileName = `${sanitizeFileName(name) || "references"}.bib`;
-          await writeBibToProject(bibFileName, bibtex);
+          const lastImport = await writeBibToProject(bibFileName, bibtex);
           const projectRoot = docStore.projectRoot;
           set((s) => {
             const projectColls = s.syncedCollections[projectRoot] ?? {};
@@ -254,6 +278,7 @@ export const useZoteroStore = create<ZoteroState>()(
                 },
               },
               isSyncing: null,
+              lastImport,
             };
           });
         } catch (err) {
@@ -268,13 +293,26 @@ export const useZoteroStore = create<ZoteroState>()(
         set({ error: null });
         try {
           const bibtex = await zoteroLocalBibtex({ itemKey });
-          await writeBibToProject("references.bib", bibtex);
+          const lastImport = await writeBibToProject("references.bib", bibtex);
           log.debug(`Imported ${citekey} into references.bib`);
+          set({ lastImport });
         } catch (err) {
           set({
             error: err instanceof Error ? err.message : String(err),
           });
         }
+      },
+
+      undoLastImport: async () => {
+        const undo = get().lastImport;
+        if (!undo) return;
+        const docStore = useDocumentStore.getState();
+        if (undo.created) {
+          await docStore.deleteFile(undo.fileId);
+        } else if (undo.previousContent !== null) {
+          docStore.updateFileContent(undo.fileId, undo.previousContent);
+        }
+        set({ lastImport: null });
       },
     }),
     {

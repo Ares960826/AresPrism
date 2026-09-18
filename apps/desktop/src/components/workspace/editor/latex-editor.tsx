@@ -1163,13 +1163,13 @@ export function LatexEditor() {
         />
       )}
       {!isPdf && !isImage && !isLargeFileNotLoaded && reviewingSnapshot && (
-        <div className="flex h-9 shrink-0 items-center justify-between border-border border-b bg-amber-500/10 px-3">
-          <div className="flex items-center gap-2 text-xs">
-            <RotateCcwIcon className="size-3.5 text-amber-600 dark:text-amber-400" />
-            <span className="font-medium text-amber-700 dark:text-amber-300">
+        <div className="flex h-9 min-w-0 shrink-0 items-center justify-between gap-2 overflow-hidden border-border border-b bg-amber-500/10 px-3">
+          <div className="flex min-w-0 items-center gap-2 text-xs">
+            <RotateCcwIcon className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="shrink-0 font-medium text-amber-700 dark:text-amber-300">
               Reviewing history
             </span>
-            <span className="text-muted-foreground">
+            <span className="min-w-0 truncate text-muted-foreground">
               {reviewingSnapshot.message.replace(/^\[.*?\]\s*/, "")} &middot;{" "}
               {reviewingSnapshot.id.slice(0, 7)}
             </span>

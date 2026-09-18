@@ -1,6 +1,6 @@
 [package]
 name = "claude-prism-desktop"
-version = "0.2.0"
+version = "0.2.1"
 description = "AresPrism local LaTeX IDE"
 edition = "2021"
 

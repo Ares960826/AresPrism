@@ -102,7 +102,10 @@ interface DocumentState {
   renameProject: (newName: string) => Promise<void>;
   closeProject: () => void;
   setActiveFile: (id: string) => void;
-  addFile: (file: Omit<ProjectFile, "id" | "isDirty">) => string;
+  addFile: (
+    file: Omit<ProjectFile, "id" | "isDirty">,
+    opts?: { activate?: boolean },
+  ) => string;
   deleteFile: (id: string) => void;
   deleteFolder: (folderPath: string) => Promise<void>;
   renameFile: (id: string, name: string) => void;
@@ -581,11 +584,12 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
   clearJumpRequest: () => set({ jumpToPosition: null }),
 
-  addFile: (file) => {
+  addFile: (file, opts) => {
     const id = file.relativePath;
+    const activate = opts?.activate !== false;
     set((state) => ({
       files: [...state.files, { ...file, id, isDirty: false }],
-      activeFileId: id,
+      ...(activate ? { activeFileId: id } : {}),
     }));
     return id;
   },
