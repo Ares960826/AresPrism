@@ -6,7 +6,7 @@
 
 <p align="center">
   A local LaTeX IDE for research papers, notes, and CVs.<br/>
-  Independent product based on <a href="https://github.com/delibae/claude-prism">ClaudePrism</a> (MIT).
+  Tectonic, TeX Live, and latexmk — live PDF preview and SyncTeX.
 </p>
 
 <p align="center">
@@ -21,7 +21,9 @@
   </a>
 </p>
 
-This is **not** the official ClaudePrism repository. AresPrism is a **parallel** product in the same open-source family. The first public source is [Open Prism](https://github.com/assistant-ui/open-prism) (assistant-ui, MIT). ClaudePrism built the desktop app from that tree. AresPrism starts from ClaudePrism 1.3.0 and develops separately. Full lineage and contributor names: [CREDITS.md](./CREDITS.md).
+AresPrism is a **local** desktop LaTeX IDE. It is built for research papers first; notes and CVs work too. Compile with **Tectonic**, **TeX Live**, or **latexmk**, and preview the PDF live with SyncTeX.
+
+Credits and origin: [CREDITS.md](./CREDITS.md).
 
 ## Install (macOS, Apple Silicon)
 

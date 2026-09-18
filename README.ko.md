@@ -6,7 +6,7 @@
 
 <p align="center">
   논문, 연구 노트, 이력서를 위한 로컬 LaTeX IDE.<br/>
-  <a href="https://github.com/delibae/claude-prism">ClaudePrism</a>(MIT)을 기반으로 한 독립 제품입니다.
+  Tectonic, TeX Live, latexmk — 실시간 PDF 미리보기와 SyncTeX.
 </p>
 
 <p align="center">
@@ -21,7 +21,9 @@
   </a>
 </p>
 
-공식 ClaudePrism 저장소가 아닙니다. AresPrism은 같은 오픈소스 계보의 **병렬 제품**입니다. 공개 소스의 출발점은 [Open Prism](https://github.com/assistant-ui/open-prism)(assistant-ui, MIT)입니다. ClaudePrism이 그 위에서 데스크톱 앱을 만들었고, AresPrism은 ClaudePrism 1.3.0에서 갈라져 따로 발전합니다. 계보와 기여자 목록은 [CREDITS.md](./CREDITS.md)를 보세요.
+AresPrism은 논문, 연구 노트, 이력서를 위한 **로컬** 데스크톱 LaTeX IDE입니다. **Tectonic**, **TeX Live**, **latexmk**로 컴파일하고, SyncTeX과 함께 실시간 PDF를 보여줍니다.
+
+기여자와 계보: [CREDITS.md](./CREDITS.md).
 
 ## 설치 (macOS Apple Silicon)
 

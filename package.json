@@ -1,6 +1,6 @@
 {
   "name": "@claude-prism/root",
-  "description": "AresPrism — local LaTeX IDE based on ClaudePrism",
+  "description": "Local desktop LaTeX IDE for research papers, notes, and CVs",
   "version": "0.1.0",
   "repository": {
     "type": "git",

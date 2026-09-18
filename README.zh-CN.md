@@ -6,7 +6,7 @@
 
 <p align="center">
   本地 LaTeX IDE，面向论文、研究笔记和简历。<br/>
-  独立产品，基于 <a href="https://github.com/delibae/claude-prism">ClaudePrism</a>（MIT）。
+  支持 Tectonic、TeX Live、latexmk，实时 PDF 预览与 SyncTeX。
 </p>
 
 <p align="center">
@@ -15,7 +15,9 @@
   <a href="./README.ko.md">한국어</a>
 </p>
 
-这不是官方 ClaudePrism 仓库。AresPrism 是同一开源谱系里的**平行产品**。公开源码的真正起点是 [Open Prism](https://github.com/assistant-ui/open-prism)（assistant-ui，MIT）。ClaudePrism 在此基础上做成桌面端。AresPrism 从 ClaudePrism 1.3.0 出发后独立发展。完整来历与贡献者名单见 [CREDITS.md](./CREDITS.md)。
+AresPrism 是**本地**桌面 LaTeX IDE，面向论文，也适合研究笔记和简历。可用 **Tectonic**、**TeX Live** 或 **latexmk** 编译，并提供实时 PDF 预览与 SyncTeX。
+
+致谢与来历见 [CREDITS.md](./CREDITS.md)。
 
 ## 安装（macOS Apple Silicon）
 
