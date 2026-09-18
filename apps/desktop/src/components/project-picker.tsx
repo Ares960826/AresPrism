@@ -27,6 +27,8 @@ import {
   PanelLeftIcon,
   PlusIcon,
   SettingsIcon,
+  TypeIcon,
+  FileCodeIcon,
   GithubIcon,
   MonitorIcon,
   MoonIcon,
@@ -54,6 +56,7 @@ import {
 } from "@/components/ui/dialog";
 import { ProjectWizard, type CreationMode } from "./project-wizard";
 import { ClaudeSetup } from "./claude-setup";
+import { AppearanceSettings, LatexSettings } from "@/components/settings-form";
 import { cn } from "@/lib/utils";
 
 interface DefaultProject {
@@ -64,7 +67,11 @@ interface DefaultProject {
 }
 
 type ProjectPickerSection = "projects" | "settings";
-type SettingsDetailSection = "provider" | "environment";
+type SettingsDetailSection =
+  | "appearance"
+  | "latex"
+  | "provider"
+  | "environment";
 
 type RecentProject = {
   path: string;
@@ -97,7 +104,7 @@ export function ProjectPicker() {
   const [activeSection, setActiveSection] =
     useState<ProjectPickerSection>("projects");
   const [settingsDetailSection, setSettingsDetailSection] =
-    useState<SettingsDetailSection>("provider");
+    useState<SettingsDetailSection>("appearance");
   const [searchQuery, setSearchQuery] = useState("");
   const [removeProjectTarget, setRemoveProjectTarget] =
     useState<RecentProject | null>(null);
@@ -391,6 +398,20 @@ export function ProjectPicker() {
             <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 px-8 py-7 lg:grid-cols-[13rem_minmax(0,1fr)]">
               <aside className="space-y-1 lg:border-border/60 lg:border-r lg:pr-4">
                 <SettingsDetailButton
+                  active={settingsDetailSection === "appearance"}
+                  icon={TypeIcon}
+                  label="Appearance"
+                  meta="Fonts"
+                  onClick={() => setSettingsDetailSection("appearance")}
+                />
+                <SettingsDetailButton
+                  active={settingsDetailSection === "latex"}
+                  icon={FileCodeIcon}
+                  label="LaTeX"
+                  meta="Compile"
+                  onClick={() => setSettingsDetailSection("latex")}
+                />
+                <SettingsDetailButton
                   active={settingsDetailSection === "provider"}
                   icon={KeyRoundIcon}
                   label="Provider"
@@ -407,7 +428,15 @@ export function ProjectPicker() {
               </aside>
 
               <div className="min-w-0">
-                {settingsDetailSection === "provider" ? (
+                {settingsDetailSection === "appearance" ? (
+                  <SettingsPanel title="Appearance" icon={TypeIcon}>
+                    <AppearanceSettings />
+                  </SettingsPanel>
+                ) : settingsDetailSection === "latex" ? (
+                  <SettingsPanel title="LaTeX" icon={FileCodeIcon}>
+                    <LatexSettings />
+                  </SettingsPanel>
+                ) : settingsDetailSection === "provider" ? (
                   <SettingsPanel
                     title="Provider"
                     icon={KeyRoundIcon}

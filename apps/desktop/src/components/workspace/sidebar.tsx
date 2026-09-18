@@ -26,6 +26,7 @@ import {
   AppWindowIcon,
   FlaskConicalIcon,
   TerminalIcon,
+  SettingsIcon,
   type LucideIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -80,6 +81,7 @@ import { Input } from "@/components/ui/input";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useUvSetupStore } from "@/stores/uv-setup-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { UvSetupDialog } from "@/components/uv-setup";
 import { createLogger } from "@/lib/debug/logger";
 
@@ -437,6 +439,7 @@ export function Sidebar({
   const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
   const refreshFilesInFlightRef = useRef<Promise<void> | null>(null);
   const { theme, setTheme } = useTheme();
+  const setSettingsOpen = useSettingsStore((s) => s.setSettingsOpen);
   const projectName = useMemo(() => {
     const normalized = projectRoot?.replace(/[\\/]+$/, "");
     return normalized?.split(/[/\\]/).pop() || "Desktop";
@@ -1191,7 +1194,17 @@ export function Sidebar({
           <AppWindowIcon className="size-3.5" />
         </Button>
       </div>
-      <div className="flex h-9 w-full items-center justify-center border-sidebar-border border-t">
+      <div className="flex h-9 w-full items-center justify-center gap-0.5 border-sidebar-border border-t">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={() => setSettingsOpen(true)}
+          title="Settings"
+          aria-label="Settings"
+        >
+          <SettingsIcon className="size-3.5" />
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -1476,6 +1489,16 @@ export function Sidebar({
               {APP_NAME} v{appVersion}
             </span>
             <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                onClick={() => setSettingsOpen(true)}
+                title="Settings"
+                aria-label="Settings"
+              >
+                <SettingsIcon className="size-3.5" />
+              </Button>
               <Button variant="ghost" size="icon" className="size-6" asChild>
                 <a
                   href={APP_REPO_URL}

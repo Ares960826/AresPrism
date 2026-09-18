@@ -695,7 +695,8 @@ export function LatexEditor() {
         EditorView.theme({
           "&": {
             height: "100%",
-            fontSize: "14px",
+            fontSize: "var(--editor-font-size, 14px)",
+            fontFamily: "var(--editor-font-family, ui-monospace, monospace)",
             color: "var(--foreground)",
             backgroundColor: "var(--background)",
             WebkitBackfaceVisibility: "hidden",
@@ -705,6 +706,7 @@ export function LatexEditor() {
             overflow: "auto",
             overscrollBehavior: "contain",
             touchAction: "pan-y",
+            fontFamily: "var(--editor-font-family, ui-monospace, monospace)",
           },
           ".cm-gutters": { paddingRight: "4px" },
           ".cm-lineNumbers .cm-gutterElement": {

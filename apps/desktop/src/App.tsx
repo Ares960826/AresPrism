@@ -15,6 +15,8 @@ import { useUvSetupStore } from "@/stores/uv-setup-store";
 import { ErrorFallback } from "@/components/error-fallback";
 import { createLogger } from "@/lib/debug/logger";
 import { EnvironmentOnboarding } from "@/components/environment-onboarding";
+import { AppearanceBridge } from "@/components/appearance-bridge";
+import { SettingsDialog } from "@/components/settings-dialog";
 import { APP_NAME } from "@/lib/app-identity";
 
 const log = createLogger("app");
@@ -225,6 +227,8 @@ export function App({ onReady }: { onReady?: () => void }) {
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         <TooltipProvider>
           <NativeWindowThemeBridge />
+          <AppearanceBridge />
+          <SettingsDialog />
           {/* Global macOS titlebar drag region — sits above all content */}
           <div
             data-tauri-drag-region

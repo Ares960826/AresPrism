@@ -125,9 +125,11 @@
     --titlebar-height: 18px;
     --traffic-light-width: 70px;
     --workspace-topbar-height: 40px;
+    font-size: var(--app-font-size, 16px);
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
   }
 }
 

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getAppZoomAction, shouldHandleAppZoomShortcut } from "@/lib/app-zoom";
 import { useDocumentStore } from "@/stores/document-store";
+import { useSettingsStore } from "@/stores/settings-store";
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
@@ -16,6 +17,11 @@ export function useKeyboardShortcuts() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        useSettingsStore.getState().setSettingsOpen(true);
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
         const state = useDocumentStore.getState();

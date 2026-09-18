@@ -1070,9 +1070,9 @@ export function PdfPreview() {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="@[30rem]/pv:hidden size-7 shrink-0"
-                  title="More"
+                  size="icon-xs"
+                  className="@[30rem]/pv:hidden size-6 shrink-0 shadow-none outline-none ring-0 hover:bg-muted/70 focus-visible:ring-0 data-[state=open]:bg-muted/70"
+                  aria-label="More"
                 >
                   <MoreHorizontalIcon className="size-3.5" />
                 </Button>
