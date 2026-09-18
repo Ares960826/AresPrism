@@ -8,12 +8,12 @@ import {
 import {
   Panel,
   PanelGroup,
-  PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
 import { Sidebar } from "./sidebar";
 import { LatexEditor } from "./editor/latex-editor";
 import { PdfPreview } from "./preview/pdf-preview";
+import { WorkspaceResizeHandle } from "./resize-handle";
 import { useDocumentStore } from "@/stores/document-store";
 import { usePreviewStore } from "@/stores/preview-store";
 
@@ -180,8 +180,8 @@ export function WorkspaceLayout() {
   }
 
   return (
-    <div ref={workspaceRef} className="h-full">
-      <PanelGroup direction="horizontal" className="h-full">
+    <div ref={workspaceRef} className="h-full min-w-0 overflow-hidden">
+      <PanelGroup direction="horizontal" className="h-full min-w-0">
         <Panel
           ref={sidebarPanelRef}
           defaultSize={SIDEBAR_DEFAULT_SIZE}
@@ -212,27 +212,27 @@ export function WorkspaceLayout() {
           />
         </Panel>
 
-        <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />
+        <WorkspaceResizeHandle direction="horizontal" />
 
         {codeVisible && (
           <Panel
             defaultSize={previewVisible ? 42.5 : 85}
-            minSize={25}
-            className="min-w-0"
+            minSize={18}
+            className="min-h-0 min-w-0 overflow-hidden"
           >
             <LatexEditor />
           </Panel>
         )}
 
         {codeVisible && previewVisible && (
-          <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />
+          <WorkspaceResizeHandle direction="horizontal" />
         )}
 
         {previewVisible && (
           <Panel
             defaultSize={codeVisible ? 42.5 : 85}
-            minSize={25}
-            className="min-w-0"
+            minSize={18}
+            className="min-h-0 min-w-0 overflow-hidden"
           >
             <PdfPreview />
           </Panel>

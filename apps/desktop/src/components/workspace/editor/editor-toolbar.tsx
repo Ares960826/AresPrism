@@ -257,7 +257,7 @@ export function EditorToolbar({
   }
 
   return (
-    <div className="flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] min-w-0 items-center gap-1 border-border border-b bg-muted/30 px-2">
+    <div className="flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] min-w-0 items-center gap-1 overflow-hidden border-border border-b bg-muted/30 px-2">
       <div className="flex min-w-0 max-w-[min(18rem,35vw)] shrink items-center gap-1.5">
         <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
         <span

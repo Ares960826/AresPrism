@@ -1,6 +1,6 @@
 [package]
 name = "claude-prism-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "AresPrism local LaTeX IDE"
 edition = "2021"
 
@@ -31,6 +31,7 @@ dotenvy = "0.15"
 git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
 chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 which = "7"
 tectonic = { version = "0.15", default-features = true, features = ["external-harfbuzz"] }
 # NOTE: Building tectonic requires external harfbuzz/graphite2/icu/freetype:

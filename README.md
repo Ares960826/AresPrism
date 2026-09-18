@@ -58,7 +58,7 @@ macOS Tectonic builds on this tree expect Homebrew ICU/HarfBuzz; `pnpm dev:deskt
 
 ## Version
 
-AresPrism **0.1.0** is the first independent release, based on ClaudePrism **1.3.0**. Changelog: [docs/ares/CHANGELOG.md](./docs/ares/CHANGELOG.md).
+Current release: **0.2.0**. The first independent build was 0.1.0, based on ClaudePrism **1.3.0**. Changelog: [docs/ares/CHANGELOG.md](./docs/ares/CHANGELOG.md).
 
 ## Lineage
 

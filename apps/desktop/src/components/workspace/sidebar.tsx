@@ -40,7 +40,8 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { Panel, PanelGroup } from "react-resizable-panels";
+import { WorkspaceResizeHandle } from "@/components/workspace/resize-handle";
 import { useTheme } from "next-themes";
 import { useDocumentStore, type ProjectFile } from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
@@ -85,6 +86,8 @@ import { createLogger } from "@/lib/debug/logger";
 const log = createLogger("sidebar");
 const FILES_AUTO_REFRESH_INTERVAL_MS = 12_000;
 const FILES_REFRESH_MIN_SPIN_MS = 400;
+/** Hide the Python/Skills pane until Agent settings exist. */
+const SHOW_ENVIRONMENT_PANE = false;
 
 // ─── Table of Contents ───
 
@@ -847,7 +850,7 @@ export function Sidebar({
 
   // dnd-kit drag-and-drop (uses PointerSensor — works in Tauri WKWebView)
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
   const [activeDrag, setActiveDrag] = useState<{
     id: string;
@@ -1268,9 +1271,13 @@ export function Sidebar({
           </div>
 
           {/* Resizable sections */}
-          <PanelGroup direction="vertical" className="min-h-0 flex-1">
+          <PanelGroup direction="vertical" className="min-h-0 min-w-0 flex-1">
             {/* Files */}
-            <Panel defaultSize={50} minSize={15}>
+            <Panel
+              defaultSize={50}
+              minSize={15}
+              className="min-h-0 overflow-hidden"
+            >
               <div
                 ref={sidebarFilesRef}
                 className="flex h-full flex-col"
@@ -1402,10 +1409,14 @@ export function Sidebar({
               </div>
             </Panel>
 
-            <PanelResizeHandle className="h-px bg-sidebar-border transition-colors hover:bg-ring data-resize-handle-active:bg-ring" />
+            <WorkspaceResizeHandle direction="vertical" />
 
             {/* Outline */}
-            <Panel defaultSize={20} minSize={10}>
+            <Panel
+              defaultSize={20}
+              minSize={10}
+              className="min-h-0 overflow-hidden"
+            >
               <div className="flex h-full flex-col">
                 <div className="flex h-8 shrink-0 items-center justify-center gap-2 px-3">
                   <ListIcon className="size-3.5 text-muted-foreground" />
@@ -1435,10 +1446,14 @@ export function Sidebar({
               </div>
             </Panel>
 
-            <PanelResizeHandle className="h-px bg-sidebar-border transition-colors hover:bg-ring data-resize-handle-active:bg-ring" />
+            <WorkspaceResizeHandle direction="vertical" />
 
             {/* Zotero */}
-            <Panel defaultSize={15} minSize={10}>
+            <Panel
+              defaultSize={30}
+              minSize={12}
+              className="min-h-0 overflow-hidden"
+            >
               <div className="flex h-full flex-col">
                 <div className="flex h-8 shrink-0 items-center">
                   <ZoteroHeader />
@@ -1450,8 +1465,10 @@ export function Sidebar({
             </Panel>
           </PanelGroup>
 
-          {/* Environment section — Python + Skills */}
-          <EnvironmentSection projectPath={projectRoot} />
+          {/* AI Environment (Python / Skills) lives in Settings when Agent ships. */}
+          {SHOW_ENVIRONMENT_PANE && (
+            <EnvironmentSection projectPath={projectRoot} />
+          )}
 
           {/* Footer */}
           <div className="flex h-9 items-center justify-between border-sidebar-border border-t px-3 text-muted-foreground text-xs">

@@ -1158,7 +1158,7 @@ export function PdfViewer({
       ref={containerRef}
       tabIndex={-1}
       {...{ [LOCAL_ZOOM_SHORTCUTS_ATTR]: "true" }}
-      className="min-h-0 flex-1 overflow-auto outline-none"
+      className="min-h-0 min-w-0 flex-1 overflow-auto outline-none"
       style={{
         cursor: captureMode ? "crosshair" : undefined,
         touchAction: captureMode ? "none" : "pan-x pan-y",

@@ -13,6 +13,7 @@ import {
   CrosshairIcon,
   ChevronUpIcon,
   ChevronDownIcon,
+  MoreHorizontalIcon,
 } from "lucide-react";
 import { writeFile, mkdir, exists } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
@@ -40,6 +41,12 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { HistoryPanel } from "@/components/workspace/history-panel";
 import {
   compileLatex,
@@ -738,7 +745,7 @@ export function PdfPreview() {
     // Use visibility:hidden + absolute positioning instead of display:none
     // so that the browser preserves scrollTop on the overflow container.
     return (
-      <div className="relative flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {aliveOrder.map((rootId) => {
           const data = getPdfBytes(rootId);
           if (!data) return null;
@@ -767,8 +774,8 @@ export function PdfPreview() {
               <div
                 className={
                   isActive
-                    ? "absolute inset-0 flex flex-col"
-                    : "pointer-events-none invisible absolute inset-0 flex flex-col"
+                    ? "absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden"
+                    : "pointer-events-none invisible absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden"
                 }
               >
                 <PdfViewer
@@ -813,10 +820,10 @@ export function PdfPreview() {
   return (
     <div
       ref={previewContainerRef}
-      className="@container/pv relative flex h-full flex-col bg-muted/50"
+      className="@container/pv relative flex h-full min-w-0 flex-col overflow-hidden bg-muted/50"
     >
-      <div className="flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] shrink-0 flex-nowrap items-center border-border border-b bg-background px-2">
-        <div className="flex min-w-0 shrink-0 items-center gap-1">
+      <div className="flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] min-w-0 shrink-0 items-center overflow-hidden border-border border-b bg-background px-1.5">
+        <div className="flex min-w-0 shrink items-center gap-1 overflow-hidden">
           <Select
             value={compilerBackend}
             onValueChange={(v) =>
@@ -903,7 +910,7 @@ export function PdfPreview() {
           )}
         </div>
         <div data-tauri-drag-region className="min-w-2 flex-1 self-stretch" />
-        <div className="ml-auto flex min-w-0 shrink-0 flex-nowrap items-center justify-end gap-1">
+        <div className="ml-auto flex min-w-0 shrink items-center justify-end gap-0.5 overflow-hidden">
           {pdfData && (
             <>
               <Button
@@ -964,7 +971,7 @@ export function PdfPreview() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7"
+                className="@[22rem]/pv:inline-flex hidden size-7 shrink-0"
                 onClick={zoomOut}
                 disabled={scale <= 0.25}
               >
@@ -973,7 +980,7 @@ export function PdfPreview() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7"
+                className="@[22rem]/pv:inline-flex hidden size-7 shrink-0"
                 onClick={zoomIn}
                 disabled={scale >= 4}
               >
@@ -1014,34 +1021,33 @@ export function PdfPreview() {
                 </SelectContent>
               </Select>
               <div className="mx-1 @[34rem]/pv:block hidden h-4 w-px bg-border" />
-              {/* Capture mode */}
-              <Button
-                variant={captureMode ? "default" : "secondary"}
-                size="sm"
-                className={`h-7 gap-1.5 @[56rem]/pv:px-2.5 px-2 text-xs ${
-                  captureMode
-                    ? "ring-2 ring-primary/30"
-                    : "bg-foreground text-background hover:bg-foreground/90"
-                }`}
-                onClick={() => setCaptureMode(!captureMode)}
-                title={`Capture & Ask (${navigator.userAgent.includes("Mac") ? "Cmd+X" : "Ctrl+X"})`}
-              >
-                <CrosshairIcon className="size-3.5 shrink-0" />
-                <span className="@[56rem]/pv:inline hidden">Capture & Ask</span>
-                <kbd className="pointer-events-none ml-0.5 @[64rem]/pv:inline hidden rounded border border-background/30 bg-background/20 px-1 py-0.5 font-medium text-[10px] text-background leading-none">
-                  {navigator.userAgent.includes("Mac") ? "Cmd+X" : "Ctrl+X"}
-                </kbd>
-              </Button>
-              <div className="mx-1 @[34rem]/pv:block hidden h-4 w-px bg-border" />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={handleExport}
-                title="Export PDF"
-              >
-                <DownloadIcon className="size-3.5" />
-              </Button>
+              <div className="@[30rem]/pv:flex hidden items-center gap-0.5">
+                <Button
+                  variant={captureMode ? "default" : "secondary"}
+                  size="sm"
+                  className={`h-7 gap-1.5 @[56rem]/pv:px-2.5 px-2 text-xs ${
+                    captureMode
+                      ? "ring-2 ring-primary/30"
+                      : "bg-foreground text-background hover:bg-foreground/90"
+                  }`}
+                  onClick={() => setCaptureMode(!captureMode)}
+                  title={`Capture & Ask (${navigator.userAgent.includes("Mac") ? "Cmd+X" : "Ctrl+X"})`}
+                >
+                  <CrosshairIcon className="size-3.5 shrink-0" />
+                  <span className="@[56rem]/pv:inline hidden">
+                    Capture & Ask
+                  </span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={handleExport}
+                  title="Export PDF"
+                >
+                  <DownloadIcon className="size-3.5" />
+                </Button>
+              </div>
             </>
           )}
           <Popover>
@@ -1049,7 +1055,7 @@ export function PdfPreview() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7"
+                className="size-7 shrink-0"
                 title="History"
               >
                 <HistoryIcon className="size-3.5" />
@@ -1059,6 +1065,30 @@ export function PdfPreview() {
               <HistoryPanel maxHeight="max-h-[32rem]" />
             </PopoverContent>
           </Popover>
+          {pdfData && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="@[30rem]/pv:hidden size-7 shrink-0"
+                  title="More"
+                >
+                  <MoreHorizontalIcon className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={() => setCaptureMode(!captureMode)}>
+                  <CrosshairIcon className="mr-2 size-3.5" />
+                  Capture
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void handleExport()}>
+                  <DownloadIcon className="mr-2 size-3.5" />
+                  Export PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
       {renderContent()}

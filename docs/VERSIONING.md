@@ -5,6 +5,7 @@ AresPrism uses its own SemVer. It does not continue ClaudePrism’s 1.x numbers.
 | Version | Meaning |
 |---|---|
 | **0.1.0** | First independent desktop build |
+| **0.2.0** | Local Zotero library; workspace pane clipping; editor scroll-latch fix |
 | 0.x.y | Ongoing work. Patch `y` for fixes; minor `x` for user-visible features |
 | 1.0.0 | When this app is the daily driver for paper writing |
 

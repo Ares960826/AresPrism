@@ -9,6 +9,7 @@ mod skills;
 mod slash_commands;
 mod uv;
 mod zotero;
+mod zotero_local;
 
 use std::path::Path;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -573,6 +574,7 @@ pub fn run() {
         .manage(claude::ClaudeProcessState::default())
         .manage(latex::LatexCompilerState::default())
         .manage(zotero::ZoteroOAuthState::default())
+        .manage(zotero_local::ZoteroLocalState::default())
         .setup(|app| {
             // Safety net: force-show the main window after a timeout if the
             // frontend JS never calls `getCurrentWindow().show()`.
@@ -631,6 +633,12 @@ pub fn run() {
             zotero::zotero_start_oauth,
             zotero::zotero_complete_oauth,
             zotero::zotero_cancel_oauth,
+            zotero_local::zotero_local_status,
+            zotero_local::zotero_local_open,
+            zotero_local::zotero_local_tree,
+            zotero_local::zotero_local_items,
+            zotero_local::zotero_local_item_detail,
+            zotero_local::zotero_local_bibtex,
             history::history_init,
             history::history_snapshot,
             history::history_list,

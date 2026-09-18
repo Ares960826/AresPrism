@@ -85,6 +85,7 @@ import { ProblemsPanel, type DiagnosticItem } from "./problems-panel";
 import { PdfViewer } from "@/components/workspace/preview/pdf-viewer";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { createLogger } from "@/lib/debug/logger";
+import { INSERT_LATEX_EVENT } from "@/lib/zotero-local";
 
 const log = createLogger("merge-view");
 
@@ -702,8 +703,8 @@ export function LatexEditor() {
           },
           ".cm-scroller": {
             overflow: "auto",
-            WebkitTransform: "translateZ(0)",
-            transform: "translateZ(0)",
+            overscrollBehavior: "contain",
+            touchAction: "pan-y",
           },
           ".cm-gutters": { paddingRight: "4px" },
           ".cm-lineNumbers .cm-gutterElement": {
@@ -809,7 +810,22 @@ export function LatexEditor() {
       });
     }
 
+    const scroller = view.scrollDOM;
+    const stopStuckScroll = (event: PointerEvent) => {
+      if (event.buttons !== 0) return;
+      if (
+        typeof scroller.hasPointerCapture === "function" &&
+        scroller.hasPointerCapture(event.pointerId)
+      ) {
+        scroller.releasePointerCapture(event.pointerId);
+      }
+    };
+    scroller.addEventListener("pointerup", stopStuckScroll);
+    scroller.addEventListener("pointercancel", stopStuckScroll);
+
     return () => {
+      scroller.removeEventListener("pointerup", stopStuckScroll);
+      scroller.removeEventListener("pointercancel", stopStuckScroll);
       // Save per-file cursor + scroll before destroying
       editorStateCache.set(activeFileId, {
         cursor: view.state.selection.main.head,
@@ -825,6 +841,22 @@ export function LatexEditor() {
     setCursorPosition,
     setSelectionRange,
   ]);
+
+  useEffect(() => {
+    const onInsert = (event: Event) => {
+      const text = (event as CustomEvent<string>).detail;
+      const view = viewRef.current;
+      if (!view || typeof text !== "string" || text.length === 0) return;
+      const { from, to } = view.state.selection.main;
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length },
+      });
+      view.focus();
+    };
+    window.addEventListener(INSERT_LATEX_EVENT, onInsert);
+    return () => window.removeEventListener(INSERT_LATEX_EVENT, onInsert);
+  }, []);
 
   // Dynamically switch editor theme when resolvedTheme changes
   useEffect(() => {
@@ -1237,7 +1269,11 @@ export function LatexEditor() {
           <>
             <div
               ref={containerRef}
-              className={reviewingSnapshot ? "hidden" : "absolute inset-0"}
+              className={
+                reviewingSnapshot
+                  ? "hidden"
+                  : "absolute inset-0 overflow-hidden overscroll-contain"
+              }
             />
             {reviewingSnapshot && historyDiffResult && (
               <HistoryDiffView diffs={historyDiffResult} />

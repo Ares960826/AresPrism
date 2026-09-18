@@ -3,28 +3,21 @@ import {
   SettingsIcon,
   DownloadIcon,
   LoaderIcon,
-  LogOutIcon,
   RefreshCwIcon,
-  ExternalLinkIcon,
-  LinkIcon,
-  UserIcon,
   FolderIcon,
   LibraryIcon,
-  CheckIcon,
-  XIcon,
+  QuoteIcon,
+  CopyIcon,
+  ChevronRightIcon,
+  ChevronDownIcon,
+  FileTextIcon,
+  FolderOpenIcon,
 } from "lucide-react";
-import { useZoteroStore, type CollectionSyncInfo } from "@/stores/zotero-store";
-import { useDocumentStore } from "@/stores/document-store";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { useZoteroStore } from "@/stores/zotero-store";
+import { insertCite, type ZoteroCollectionNode } from "@/lib/zotero-local";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,150 +26,225 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const MYLIB_KEY = "__my_library__";
-
 export function ZoteroPanel() {
-  const isAuthenticated = useZoteroStore((s) => s.isAuthenticated);
-  const _username = useZoteroStore((s) => s.username);
-  const isValidating = useZoteroStore((s) => s.isValidating);
-  const isSyncing = useZoteroStore((s) => s.isSyncing);
-  const syncProgress = useZoteroStore((s) => s.syncProgress);
-  const projectRoot = useDocumentStore((s) => s.projectRoot);
-  const allSyncedCollections = useZoteroStore((s) => s.syncedCollections);
-  const syncedCollections = projectRoot
-    ? (allSyncedCollections[projectRoot] ?? {})
-    : {};
+  const isConnected = useZoteroStore((s) => s.isConnected);
+  const isOpening = useZoteroStore((s) => s.isOpening);
+  const isLoadingTree = useZoteroStore((s) => s.isLoadingTree);
+  const isLoadingItems = useZoteroStore((s) => s.isLoadingItems);
   const error = useZoteroStore((s) => s.error);
   const collections = useZoteroStore((s) => s.collections);
-  const isLoadingCollections = useZoteroStore((s) => s.isLoadingCollections);
-  const connectWithOAuth = useZoteroStore((s) => s.connectWithOAuth);
-  const cancelConnect = useZoteroStore((s) => s.cancelConnect);
-  const _disconnect = useZoteroStore((s) => s.disconnect);
-  const revalidate = useZoteroStore((s) => s.revalidate);
-  const _loadCollections = useZoteroStore((s) => s.loadCollections);
+  const items = useZoteroStore((s) => s.items);
+  const activeCollectionKey = useZoteroStore((s) => s.activeCollectionKey);
+  const preview = useZoteroStore((s) => s.preview);
+  const connectLocal = useZoteroStore((s) => s.connectLocal);
+  const refresh = useZoteroStore((s) => s.refresh);
+  const selectCollection = useZoteroStore((s) => s.selectCollection);
+  const previewItem = useZoteroStore((s) => s.previewItem);
   const importCollectionToBib = useZoteroStore((s) => s.importCollectionToBib);
-  const syncCollectionBib = useZoteroStore((s) => s.syncCollectionBib);
-  const removeCollection = useZoteroStore((s) => s.removeCollection);
-
-  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const importItemToBib = useZoteroStore((s) => s.importItemToBib);
+  const isSyncing = useZoteroStore((s) => s.isSyncing);
 
   useEffect(() => {
-    const { apiKey } = useZoteroStore.getState();
-    if (apiKey) revalidate();
-  }, [revalidate]);
+    void refresh();
+  }, [refresh]);
 
-  const topCollections = collections.filter((c) => c.parentKey === false);
+  const pickFolder = async () => {
+    const dir = await openDialog({
+      directory: true,
+      title: "Zotero data folder",
+    });
+    if (typeof dir === "string") {
+      await connectLocal(dir);
+    }
+  };
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Content */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {!isAuthenticated ? (
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        {!isConnected ? (
           <NotConnectedView
-            isValidating={isValidating}
+            isOpening={isOpening}
             error={error}
-            onConnect={connectWithOAuth}
-            onCancel={cancelConnect}
-            onApiKey={() => setConnectDialogOpen(true)}
+            onOpenDefault={() => void connectLocal(null)}
+            onPickFolder={() => void pickFolder()}
           />
         ) : (
           <div className="py-0.5">
-            {/* Error */}
             {error && (
               <div className="mx-2 mb-1 rounded bg-destructive/10 px-2 py-1 text-destructive text-xs">
                 {error}
               </div>
             )}
-
-            {/* Syncing progress */}
-            {isSyncing && (
-              <div className="mx-2 mb-0.5 flex items-center gap-1 text-muted-foreground text-xs">
-                <LoaderIcon className="size-3 animate-spin" />
-                {syncProgress
-                  ? `${syncProgress.loaded}/${syncProgress.total}`
-                  : "Syncing..."}
-              </div>
-            )}
-
-            {/* My Library */}
             <CollectionRow
-              collectionKey={null}
               name="My Library"
               icon={<LibraryIcon className="size-3.5" />}
-              syncInfo={syncedCollections[MYLIB_KEY]}
-              isSyncing={isSyncing === MYLIB_KEY}
-              onImport={() => importCollectionToBib(null, "My Library")}
-              onSync={() => syncCollectionBib(null)}
-              onRemove={() => removeCollection(null)}
-              disabled={!!isSyncing}
+              selected={activeCollectionKey === null}
+              onSelect={() => void selectCollection(null)}
+              onImport={() => void importCollectionToBib(null, "My Library")}
+              importing={isSyncing === "__my_library__"}
             />
-
-            {topCollections.length > 0 && (
-              <div className="mx-2 my-0.5 border-sidebar-border border-t" />
-            )}
-
-            {isLoadingCollections ? (
+            {isLoadingTree ? (
               <div className="flex items-center gap-1 px-2 py-1 text-muted-foreground text-xs">
                 <LoaderIcon className="size-3 animate-spin" />
-                Loading...
+                Loading collections...
               </div>
             ) : (
-              topCollections.map((col) => (
-                <CollectionRow
+              collections.map((col) => (
+                <CollectionTree
                   key={col.key}
-                  collectionKey={col.key}
-                  name={col.name}
-                  icon={<FolderIcon className="size-3.5" />}
-                  itemCount={col.itemCount}
-                  syncInfo={syncedCollections[col.key]}
-                  isSyncing={isSyncing === col.key}
-                  onImport={() => importCollectionToBib(col.key, col.name)}
-                  onSync={() => syncCollectionBib(col.key)}
-                  onRemove={() => removeCollection(col.key)}
-                  disabled={!!isSyncing}
+                  node={col}
+                  depth={0}
+                  activeKey={activeCollectionKey}
+                  onSelect={(key) => void selectCollection(key)}
+                  onImport={(key, name) =>
+                    void importCollectionToBib(key, name)
+                  }
+                  importingKey={isSyncing}
                 />
+              ))
+            )}
+            <div className="mx-2 my-1 border-sidebar-border border-t" />
+            {isLoadingItems ? (
+              <div className="flex items-center gap-1 px-2 py-1 text-muted-foreground text-xs">
+                <LoaderIcon className="size-3 animate-spin" />
+                Loading items...
+              </div>
+            ) : items.length === 0 ? (
+              <p className="px-2 py-1 text-muted-foreground text-xs">
+                No items in this collection.
+              </p>
+            ) : (
+              items.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={cn(
+                    "group flex w-full min-w-0 items-start gap-1.5 px-2 py-1 text-left hover:bg-sidebar-accent/50",
+                    preview?.item.key === item.key && "bg-sidebar-accent/40",
+                  )}
+                  onClick={() => void previewItem(item.key)}
+                >
+                  <FileTextIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm">{item.title}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {[item.creators, item.year].filter(Boolean).join(" · ")}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                    <IconAction
+                      title="Cite"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        insertCite(item.citekey);
+                      }}
+                    >
+                      <QuoteIcon className="size-3" />
+                    </IconAction>
+                    <IconAction
+                      title="Copy citekey"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void navigator.clipboard.writeText(item.citekey);
+                      }}
+                    >
+                      <CopyIcon className="size-3" />
+                    </IconAction>
+                    <IconAction
+                      title="Add to references.bib"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void importItemToBib(item.key, item.citekey);
+                      }}
+                    >
+                      <DownloadIcon className="size-3" />
+                    </IconAction>
+                  </span>
+                </button>
               ))
             )}
           </div>
         )}
       </div>
-
-      <ZoteroApiKeyDialog
-        open={connectDialogOpen}
-        onOpenChange={setConnectDialogOpen}
-      />
+      {preview && (
+        <div className="shrink-0 border-sidebar-border border-t px-2 py-1.5">
+          <p className="truncate font-medium text-xs">{preview.item.title}</p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {preview.item.creators}
+            {preview.item.year ? ` (${preview.item.year})` : ""}
+          </p>
+          {preview.publication && (
+            <p className="truncate text-[11px] text-muted-foreground italic">
+              {preview.publication}
+            </p>
+          )}
+          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+            {preview.item.citekey}
+          </p>
+          <div className="mt-1 flex gap-1">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => insertCite(preview.item.citekey)}
+            >
+              Cite
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[11px]"
+              onClick={() =>
+                void importItemToBib(preview.item.key, preview.item.citekey)
+              }
+            >
+              BibTeX
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/** Header rendered separately by Sidebar so it sits outside the resizable panel content */
 export function ZoteroHeader() {
-  const isAuthenticated = useZoteroStore((s) => s.isAuthenticated);
-  const username = useZoteroStore((s) => s.username);
-  const isLoadingCollections = useZoteroStore((s) => s.isLoadingCollections);
+  const isConnected = useZoteroStore((s) => s.isConnected);
+  const dataDir = useZoteroStore((s) => s.dataDir);
+  const isLoadingTree = useZoteroStore((s) => s.isLoadingTree);
+  const refresh = useZoteroStore((s) => s.refresh);
   const disconnect = useZoteroStore((s) => s.disconnect);
-  const loadCollections = useZoteroStore((s) => s.loadCollections);
+  const connectLocal = useZoteroStore((s) => s.connectLocal);
+
+  const pickFolder = async () => {
+    const dir = await openDialog({
+      directory: true,
+      title: "Zotero data folder",
+    });
+    if (typeof dir === "string") {
+      await connectLocal(dir);
+    }
+  };
 
   return (
-    <div className="relative flex w-full items-center justify-center px-3">
-      <div className="flex items-center gap-2">
+    <div className="relative flex w-full min-w-0 items-center justify-center px-3">
+      <div className="flex min-w-0 items-center gap-2">
         <span
           className={cn(
-            "size-1.5 rounded-full",
-            isAuthenticated ? "bg-foreground" : "bg-muted-foreground/30",
+            "size-1.5 shrink-0 rounded-full",
+            isConnected ? "bg-foreground" : "bg-muted-foreground/30",
           )}
         />
         <span className="font-medium text-xs">Zotero</span>
       </div>
-      {isAuthenticated && (
+      {isConnected && (
         <div className="absolute right-3 flex items-center gap-1">
           <button
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-            onClick={loadCollections}
-            title="Refresh"
+            onClick={() => void refresh()}
+            title="Reload local library"
           >
             <RefreshCwIcon
-              className={cn("size-3.5", isLoadingCollections && "animate-spin")}
+              className={cn("size-3.5", isLoadingTree && "animate-spin")}
             />
           </button>
           <DropdownMenu>
@@ -185,16 +253,21 @@ export function ZoteroHeader() {
                 <SettingsIcon className="size-3.5" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <div className="flex items-center gap-2 px-2 py-1">
-                <UserIcon className="size-3.5 text-muted-foreground" />
-                <span className="truncate text-muted-foreground text-xs">
-                  {username}
-                </span>
+            <DropdownMenuContent align="end" className="w-52">
+              <div className="px-2 py-1">
+                <p className="text-[10px] text-muted-foreground">
+                  Local database
+                </p>
+                <p className="truncate text-xs" title={dataDir ?? undefined}>
+                  {dataDir ?? "Zotero"}
+                </p>
               </div>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => void pickFolder()}>
+                <FolderOpenIcon className="mr-2 size-3.5" />
+                Choose data folder
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={disconnect}>
-                <LogOutIcon className="mr-2 size-3.5" />
                 Disconnect
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -205,57 +278,42 @@ export function ZoteroHeader() {
   );
 }
 
-// ─── Not Connected View ───
-
 function NotConnectedView({
-  isValidating,
+  isOpening,
   error,
-  onConnect,
-  onCancel,
-  onApiKey,
+  onOpenDefault,
+  onPickFolder,
 }: {
-  isValidating: boolean;
+  isOpening: boolean;
   error: string | null;
-  onConnect: () => void;
-  onCancel: () => void;
-  onApiKey: () => void;
+  onOpenDefault: () => void;
+  onPickFolder: () => void;
 }) {
   return (
     <div className="flex flex-col items-center gap-2 px-3 py-4 text-center">
-      <div className="flex size-8 items-center justify-center rounded-full bg-muted">
-        <LinkIcon className="size-4 text-muted-foreground" />
-      </div>
       <p className="text-[11px] text-muted-foreground leading-relaxed">
-        Connect Zotero to import references.
+        Browse your local Zotero library, cite keys, and import BibTeX. No
+        zotero.org account required.
       </p>
-      {isValidating ? (
-        <div className="flex flex-col items-center gap-1">
-          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            <LoaderIcon className="size-3 animate-spin" />
-            Authorizing...
-          </div>
-          <button
-            className="text-[10px] text-muted-foreground underline"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
+      {isOpening ? (
+        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+          <LoaderIcon className="size-3 animate-spin" />
+          Opening library...
         </div>
       ) : (
         <div className="flex flex-col items-center gap-1">
           <Button
             size="sm"
             className="h-6 gap-1 text-[11px]"
-            onClick={onConnect}
+            onClick={onOpenDefault}
           >
-            <ExternalLinkIcon className="size-3" />
-            Connect
+            Open local library
           </Button>
           <button
             className="text-[10px] text-muted-foreground underline"
-            onClick={onApiKey}
+            onClick={onPickFolder}
           >
-            API key
+            Choose data folder
           </button>
         </div>
       )}
@@ -264,162 +322,157 @@ function NotConnectedView({
   );
 }
 
-// ─── Collection Row ───
-
-function CollectionRow({
-  collectionKey: _collectionKey,
-  name,
-  icon,
-  itemCount,
-  syncInfo,
-  isSyncing,
+function CollectionTree({
+  node,
+  depth,
+  activeKey,
+  onSelect,
   onImport,
-  onSync,
-  onRemove,
-  disabled,
+  importingKey,
 }: {
-  collectionKey: string | null;
-  name: string;
-  icon: React.ReactNode;
-  itemCount?: number;
-  syncInfo?: CollectionSyncInfo;
-  isSyncing: boolean;
-  onImport: () => void;
-  onSync: () => void;
-  onRemove: () => void;
-  disabled: boolean;
+  node: ZoteroCollectionNode;
+  depth: number;
+  activeKey: string | null;
+  onSelect: (key: string) => void;
+  onImport: (key: string, name: string) => void;
+  importingKey: string | null;
 }) {
-  const isSynced = !!syncInfo;
-
+  const [open, setOpen] = useState(depth < 1);
+  const hasChildren = node.children.length > 0;
   return (
-    <div className="group flex items-center gap-1.5 px-2 py-0.5">
-      <span className="shrink-0 text-muted-foreground">{icon}</span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1">
-          <span className="truncate text-foreground text-sm">{name}</span>
-          {isSynced && (
-            <CheckIcon className="size-2.5 shrink-0 text-muted-foreground" />
-          )}
-        </div>
-        {isSynced && (
-          <p className="truncate text-muted-foreground text-xs leading-none">
-            {syncInfo.bibFileName}
-          </p>
-        )}
-        {!isSynced && itemCount !== undefined && (
-          <p className="text-muted-foreground text-xs leading-none">
-            {itemCount} items
-          </p>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-        {isSynced ? (
-          <>
-            <button
-              className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground disabled:opacity-30"
-              onClick={onSync}
-              disabled={disabled}
-              title="Sync"
-            >
-              {isSyncing ? (
-                <LoaderIcon className="size-3 animate-spin" />
-              ) : (
-                <RefreshCwIcon className="size-3" />
-              )}
-            </button>
-            <button
-              className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground disabled:opacity-30"
-              onClick={onRemove}
-              disabled={disabled}
-              title="Remove"
-            >
-              <XIcon className="size-3" />
-            </button>
-          </>
-        ) : (
-          <button
-            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground disabled:opacity-30"
-            onClick={onImport}
-            disabled={disabled}
-            title="Import"
-          >
-            <DownloadIcon className="size-3" />
-          </button>
-        )}
-      </div>
+    <div>
+      <CollectionRow
+        name={node.name}
+        icon={<FolderIcon className="size-3.5" />}
+        depth={depth}
+        itemCount={node.item_count}
+        selected={activeKey === node.key}
+        expandable={hasChildren}
+        expanded={open}
+        onToggle={() => setOpen((v) => !v)}
+        onSelect={() => onSelect(node.key)}
+        onImport={() => onImport(node.key, node.name)}
+        importing={importingKey === node.key}
+      />
+      {open &&
+        node.children.map((child) => (
+          <CollectionTree
+            key={child.key}
+            node={child}
+            depth={depth + 1}
+            activeKey={activeKey}
+            onSelect={onSelect}
+            onImport={onImport}
+            importingKey={importingKey}
+          />
+        ))}
     </div>
   );
 }
 
-// ─── API Key Dialog ───
-
-function ZoteroApiKeyDialog({
-  open,
-  onOpenChange,
+function CollectionRow({
+  name,
+  icon,
+  depth = 0,
+  itemCount,
+  selected,
+  expandable,
+  expanded,
+  onToggle,
+  onSelect,
+  onImport,
+  importing,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  name: string;
+  icon: React.ReactNode;
+  depth?: number;
+  itemCount?: number;
+  selected: boolean;
+  expandable?: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
+  onSelect: () => void;
+  onImport: () => void;
+  importing: boolean;
 }) {
-  const [apiKey, setApiKey] = useState("");
-  const connect = useZoteroStore((s) => s.connectWithApiKey);
-  const isValidating = useZoteroStore((s) => s.isValidating);
-  const error = useZoteroStore((s) => s.error);
-
-  const handleConnect = async () => {
-    const key = apiKey.trim();
-    if (!key) return;
-    const success = await connect(key);
-    if (success) {
-      onOpenChange(false);
-      setApiKey("");
-    }
-  };
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Connect to Zotero</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-4">
-          <p className="text-muted-foreground text-sm">
-            Enter your Zotero API key.
-          </p>
-          <Input
-            type="password"
-            placeholder="Zotero API Key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleConnect();
-            }}
-            autoFocus
-          />
-          {error && <p className="text-destructive text-xs">{error}</p>}
-          <p className="text-muted-foreground text-xs">
-            Create a key at{" "}
-            <a
-              href="https://www.zotero.org/settings/keys"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline"
-            >
-              zotero.org/settings/keys
-            </a>
-          </p>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConnect}
-            disabled={!apiKey.trim() || isValidating}
-          >
-            {isValidating ? "Validating..." : "Connect"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <div
+      className={cn(
+        "group flex min-w-0 items-center gap-1 py-0.5 pr-1",
+        selected && "bg-sidebar-accent/40",
+      )}
+      style={{ paddingLeft: 8 + depth * 12 }}
+    >
+      {expandable ? (
+        <button
+          type="button"
+          className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent"
+          onClick={onToggle}
+          aria-label={expanded ? "Collapse" : "Expand"}
+        >
+          {expanded ? (
+            <ChevronDownIcon className="size-3" />
+          ) : (
+            <ChevronRightIcon className="size-3" />
+          )}
+        </button>
+      ) : (
+        <span className="w-4 shrink-0" />
+      )}
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        onClick={onSelect}
+      >
+        <span className="shrink-0 text-muted-foreground">{icon}</span>
+        <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
+        {itemCount !== undefined && (
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {itemCount}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        className="rounded p-0.5 text-muted-foreground opacity-0 hover:bg-sidebar-accent hover:text-foreground disabled:opacity-30 group-hover:opacity-100"
+        onClick={onImport}
+        disabled={importing}
+        title="Import BibTeX into this project"
+      >
+        {importing ? (
+          <LoaderIcon className="size-3 animate-spin" />
+        ) : (
+          <DownloadIcon className="size-3" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+function IconAction({
+  title,
+  onClick,
+  children,
+}: {
+  title: string;
+  onClick: (e: React.MouseEvent) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      title={title}
+      className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick(e as unknown as React.MouseEvent);
+        }
+      }}
+    >
+      {children}
+    </span>
   );
 }

@@ -1,15 +1,16 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  validateApiKey,
-  fetchCollections,
-  importCollection,
-  syncCollection,
-  startOAuth,
-  completeOAuth,
-  cancelOAuth,
-  type ZoteroCollection,
-} from "@/lib/zotero-api";
+  zoteroLocalOpen,
+  zoteroLocalStatus,
+  zoteroLocalTree,
+  zoteroLocalItems,
+  zoteroLocalItemDetail,
+  zoteroLocalBibtex,
+  type ZoteroCollectionNode,
+  type ZoteroLocalItem,
+  type ZoteroLocalItemDetail,
+} from "@/lib/zotero-local";
 import { useDocumentStore } from "@/stores/document-store";
 import { createFileOnDisk } from "@/lib/tauri/fs";
 import { createLogger } from "@/lib/debug/logger";
@@ -17,51 +18,16 @@ import { STORAGE_KEYS } from "@/lib/app-identity";
 
 const log = createLogger("zotero");
 
-/** Per-collection sync metadata (persisted) */
 export interface CollectionSyncInfo {
-  collectionKey: string | null; // null = "My Library"
+  collectionKey: string | null;
   name: string;
   bibFileName: string;
-  libraryVersion: number;
-  keyMap: Record<string, string>;
 }
 
-/** Synced collections scoped per project path */
 type ProjectSyncedCollections = Record<
   string,
   Record<string, CollectionSyncInfo>
 >;
-
-interface ZoteroState {
-  // Persisted
-  apiKey: string | null;
-  userID: string | null;
-  username: string | null;
-  /** Synced collections keyed by projectPath → collectionKey */
-  syncedCollections: ProjectSyncedCollections;
-
-  // Transient
-  isAuthenticated: boolean;
-  isValidating: boolean;
-  isSyncing: string | null; // collectionKey currently syncing, or null
-  syncProgress: { loaded: number; total: number } | null;
-  error: string | null;
-  collections: ZoteroCollection[];
-  isLoadingCollections: boolean;
-
-  connectWithOAuth: () => Promise<boolean>;
-  connectWithApiKey: (apiKey: string) => Promise<boolean>;
-  cancelConnect: () => void;
-  disconnect: () => void;
-  revalidate: () => Promise<void>;
-  loadCollections: () => Promise<void>;
-  importCollectionToBib: (
-    collectionKey: string | null,
-    name: string,
-  ) => Promise<void>;
-  syncCollectionBib: (collectionKey: string | null) => Promise<void>;
-  removeCollection: (collectionKey: string | null) => void;
-}
 
 const MYLIB_KEY = "__my_library__";
 function storeKey(collectionKey: string | null): string {
@@ -75,7 +41,6 @@ function sanitizeFileName(name: string): string {
     .toLowerCase();
 }
 
-/** Parse a .bib file into a map of citekey → full entry string */
 function parseBibEntries(content: string): Map<string, string> {
   const entries = new Map<string, string>();
   const parts = content.split(/\n(?=@)/);
@@ -90,339 +55,236 @@ function parseBibEntries(content: string): Map<string, string> {
   return entries;
 }
 
+interface ZoteroState {
+  dataDir: string | null;
+  isConnected: boolean;
+  isOpening: boolean;
+  isLoadingTree: boolean;
+  isLoadingItems: boolean;
+  error: string | null;
+  collections: ZoteroCollectionNode[];
+  items: ZoteroLocalItem[];
+  activeCollectionKey: string | null;
+  preview: ZoteroLocalItemDetail | null;
+  syncedCollections: ProjectSyncedCollections;
+  isSyncing: string | null;
+
+  connectLocal: (dataDir?: string | null) => Promise<boolean>;
+  disconnect: () => void;
+  refresh: () => Promise<void>;
+  selectCollection: (collectionKey: string | null) => Promise<void>;
+  previewItem: (itemKey: string) => Promise<void>;
+  importCollectionToBib: (
+    collectionKey: string | null,
+    name: string,
+  ) => Promise<void>;
+  importItemToBib: (itemKey: string, citekey: string) => Promise<void>;
+}
+
+async function writeBibToProject(bibFileName: string, bibtex: string) {
+  const docStore = useDocumentStore.getState();
+  if (!docStore.projectRoot) {
+    throw new Error("Open a project before importing BibTeX.");
+  }
+  const existingFile = docStore.files.find((f) => f.name === bibFileName);
+  if (existingFile) {
+    const current = existingFile.content ?? "";
+    const entries = parseBibEntries(current);
+    for (const [key, entry] of parseBibEntries(bibtex)) {
+      entries.set(key, entry);
+    }
+    docStore.updateFileContent(
+      existingFile.id,
+      `${Array.from(entries.values()).join("\n\n")}\n`,
+    );
+    return;
+  }
+  const fullPath = await createFileOnDisk(
+    docStore.projectRoot,
+    bibFileName,
+    bibtex.endsWith("\n") ? bibtex : `${bibtex}\n`,
+  );
+  docStore.addFile({
+    name: bibFileName,
+    relativePath: bibFileName,
+    absolutePath: fullPath,
+    type: "tex",
+    content: bibtex,
+  });
+}
+
 export const useZoteroStore = create<ZoteroState>()(
   persist(
     (set, get) => ({
-      apiKey: null,
-      userID: null,
-      username: null,
-      syncedCollections: {},
-
-      isAuthenticated: false,
-      isValidating: false,
-      isSyncing: null,
-      syncProgress: null,
+      dataDir: null,
+      isConnected: false,
+      isOpening: false,
+      isLoadingTree: false,
+      isLoadingItems: false,
       error: null,
       collections: [],
-      isLoadingCollections: false,
+      items: [],
+      activeCollectionKey: null,
+      preview: null,
+      syncedCollections: {},
+      isSyncing: null,
 
-      connectWithOAuth: async () => {
-        log.info("Starting OAuth connection");
-        set({ isValidating: true, error: null });
+      connectLocal: async (dataDir) => {
+        set({ isOpening: true, error: null });
         try {
-          await startOAuth();
-          const creds = await completeOAuth();
-          log.info(`OAuth connected as ${creds.username}`);
+          const status = await zoteroLocalOpen(dataDir ?? get().dataDir);
+          if (!status.found) {
+            set({
+              isOpening: false,
+              isConnected: false,
+              error: status.error,
+            });
+            return false;
+          }
           set({
-            apiKey: creds.apiKey,
-            userID: creds.userID,
-            username: creds.username,
-            isAuthenticated: true,
-            isValidating: false,
+            dataDir: status.data_dir,
+            isConnected: true,
+            isOpening: false,
+            isLoadingTree: true,
           });
-          // Auto-load collections after connecting
-          get().loadCollections();
+          const collections = await zoteroLocalTree();
+          set({ collections, isLoadingTree: false });
+          await get().selectCollection(null);
           return true;
         } catch (err) {
           set({
-            error: err instanceof Error ? err.message : "Connection failed",
-            isValidating: false,
+            isOpening: false,
+            isConnected: false,
+            error: err instanceof Error ? err.message : String(err),
           });
           return false;
         }
-      },
-
-      connectWithApiKey: async (apiKey: string) => {
-        set({ isValidating: true, error: null });
-        try {
-          const creds = await validateApiKey(apiKey);
-          set({
-            apiKey: creds.apiKey,
-            userID: creds.userID,
-            username: creds.username,
-            isAuthenticated: true,
-            isValidating: false,
-          });
-          get().loadCollections();
-          return true;
-        } catch (err) {
-          set({
-            error: err instanceof Error ? err.message : "Connection failed",
-            isValidating: false,
-          });
-          return false;
-        }
-      },
-
-      cancelConnect: () => {
-        cancelOAuth().catch(() => {});
-        set({ isValidating: false, error: null });
       },
 
       disconnect: () => {
         set({
-          apiKey: null,
-          userID: null,
-          username: null,
-          syncedCollections: {},
-          isAuthenticated: false,
-          error: null,
+          isConnected: false,
           collections: [],
+          items: [],
+          preview: null,
+          activeCollectionKey: null,
+          error: null,
         });
       },
 
-      revalidate: async () => {
-        const { apiKey } = get();
-        if (!apiKey) return;
+      refresh: async () => {
+        const { dataDir, isConnected } = get();
+        if (!isConnected) {
+          const status = dataDir
+            ? { found: true, data_dir: dataDir, error: null }
+            : await zoteroLocalStatus();
+          if (status.found) {
+            await get().connectLocal(status.data_dir);
+          } else {
+            set({ error: status.error });
+          }
+          return;
+        }
+        set({ isLoadingTree: true, error: null });
         try {
-          const creds = await validateApiKey(apiKey);
-          log.debug(`Revalidated as ${creds.username}`);
-          set({
-            userID: creds.userID,
-            username: creds.username,
-            isAuthenticated: true,
-          });
-          get().loadCollections();
+          if (dataDir) {
+            await zoteroLocalOpen(dataDir);
+          }
+          const collections = await zoteroLocalTree();
+          log.debug(`Loaded ${collections.length} top-level collections`);
+          set({ collections, isLoadingTree: false });
+          await get().selectCollection(get().activeCollectionKey);
         } catch (err) {
-          log.warn("Revalidation failed", { error: String(err) });
-          set({ isAuthenticated: false });
+          set({
+            isLoadingTree: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       },
 
-      loadCollections: async () => {
-        const { apiKey, userID } = get();
-        if (!apiKey || !userID) return;
-        set({ isLoadingCollections: true });
+      selectCollection: async (collectionKey) => {
+        set({
+          activeCollectionKey: collectionKey,
+          isLoadingItems: true,
+          preview: null,
+        });
         try {
-          const collections = await fetchCollections(apiKey, userID);
-          log.debug(`Loaded ${collections.length} collections`);
-          set({ collections, isLoadingCollections: false });
+          const items = await zoteroLocalItems(collectionKey);
+          set({ items, isLoadingItems: false });
         } catch (err) {
-          log.error("Failed to load collections", { error: String(err) });
-          set({ isLoadingCollections: false });
+          set({
+            isLoadingItems: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+
+      previewItem: async (itemKey) => {
+        try {
+          const preview = await zoteroLocalItemDetail(itemKey);
+          set({ preview });
+        } catch (err) {
+          set({
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       },
 
       importCollectionToBib: async (collectionKey, name) => {
-        const { apiKey, userID } = get();
-        if (!apiKey || !userID) return;
-
         const docStore = useDocumentStore.getState();
-        if (!docStore.projectRoot) return;
-        const projectRoot = docStore.projectRoot;
-
+        if (!docStore.projectRoot) {
+          set({ error: "Open a project before importing BibTeX." });
+          return;
+        }
         const sk = storeKey(collectionKey);
-        set({ isSyncing: sk, syncProgress: null, error: null });
-
+        set({ isSyncing: sk, error: null });
         try {
-          const result = await importCollection(
-            apiKey,
-            userID,
-            collectionKey,
-            (loaded, total) => {
-              set({ syncProgress: { loaded, total } });
-            },
-          );
-
-          // Determine .bib file name
-          const bibFileName = `${sanitizeFileName(name)}.bib`;
-
-          // Check if this .bib file already exists in the project
-          const existingFile = docStore.files.find(
-            (f) => f.name === bibFileName,
-          );
-          if (existingFile) {
-            docStore.updateFileContent(existingFile.id, result.bibtex);
-          } else {
-            const fullPath = await createFileOnDisk(
-              projectRoot,
-              bibFileName,
-              result.bibtex,
-            );
-            docStore.addFile({
-              name: bibFileName,
-              relativePath: bibFileName,
-              absolutePath: fullPath,
-              type: "tex",
-              content: result.bibtex,
-            });
-          }
-
-          // Store sync info scoped to current project
-          const syncInfo: CollectionSyncInfo = {
-            collectionKey,
-            name,
-            bibFileName,
-            libraryVersion: result.libraryVersion,
-            keyMap: result.keyMap,
-          };
+          const bibtex = await zoteroLocalBibtex({ collectionKey });
+          const bibFileName = `${sanitizeFileName(name) || "references"}.bib`;
+          await writeBibToProject(bibFileName, bibtex);
+          const projectRoot = docStore.projectRoot;
           set((s) => {
             const projectColls = s.syncedCollections[projectRoot] ?? {};
             return {
               syncedCollections: {
                 ...s.syncedCollections,
-                [projectRoot]: { ...projectColls, [sk]: syncInfo },
+                [projectRoot]: {
+                  ...projectColls,
+                  [sk]: { collectionKey, name, bibFileName },
+                },
               },
               isSyncing: null,
-              syncProgress: null,
             };
           });
         } catch (err) {
           set({
-            error: err instanceof Error ? err.message : "Import failed",
             isSyncing: null,
-            syncProgress: null,
+            error: err instanceof Error ? err.message : String(err),
           });
         }
       },
 
-      syncCollectionBib: async (collectionKey) => {
-        const { apiKey, userID, syncedCollections } = get();
-        if (!apiKey || !userID) return;
-
-        const docStore = useDocumentStore.getState();
-        if (!docStore.projectRoot) return;
-        const projectRoot = docStore.projectRoot;
-
-        const sk = storeKey(collectionKey);
-        const projectColls = syncedCollections[projectRoot] ?? {};
-        const syncInfo = projectColls[sk];
-        if (!syncInfo) return;
-
-        const bibFile = docStore.files.find(
-          (f) => f.name === syncInfo.bibFileName,
-        );
-        if (!bibFile) return;
-
-        set({ isSyncing: sk, syncProgress: null, error: null });
-
+      importItemToBib: async (itemKey, citekey) => {
+        set({ error: null });
         try {
-          const result = await syncCollection(
-            apiKey,
-            userID,
-            collectionKey,
-            syncInfo.libraryVersion,
-            (loaded, total) => {
-              set({ syncProgress: { loaded, total } });
-            },
-          );
-
-          if (collectionKey) {
-            // For specific collections, syncCollection returns a full re-import
-            // Rebuild the .bib content from all entries
-            const newKeyMap: Record<string, string> = {};
-            const entries: string[] = [];
-            for (const entry of result.updatedEntries) {
-              if (entry.bibtex.trim()) {
-                entries.push(entry.bibtex);
-                newKeyMap[entry.key] = entry.citekey;
-              }
-            }
-            const updatedContent = `${entries.join("\n\n")}\n`;
-            docStore.updateFileContent(bibFile.id, updatedContent);
-
-            set((s) => {
-              const pColls = s.syncedCollections[projectRoot] ?? {};
-              return {
-                syncedCollections: {
-                  ...s.syncedCollections,
-                  [projectRoot]: {
-                    ...pColls,
-                    [sk]: {
-                      ...syncInfo,
-                      libraryVersion: result.libraryVersion,
-                      keyMap: newKeyMap,
-                    },
-                  },
-                },
-                isSyncing: null,
-                syncProgress: null,
-              };
-            });
-          } else {
-            // For "My Library", apply incremental diff
-            const currentContent = bibFile.content ?? "";
-            const entries = parseBibEntries(currentContent);
-            const newKeyMap = { ...syncInfo.keyMap };
-
-            for (const entry of result.updatedEntries) {
-              const oldCitekey = newKeyMap[entry.key];
-              if (oldCitekey && oldCitekey !== entry.citekey) {
-                entries.delete(oldCitekey);
-              }
-              entries.set(entry.citekey, entry.bibtex);
-              newKeyMap[entry.key] = entry.citekey;
-            }
-
-            for (const deletedKey of result.deletedKeys) {
-              const citekey = newKeyMap[deletedKey];
-              if (citekey) {
-                entries.delete(citekey);
-                delete newKeyMap[deletedKey];
-              }
-            }
-
-            const updatedContent = `${Array.from(entries.values()).join("\n\n")}\n`;
-            docStore.updateFileContent(bibFile.id, updatedContent);
-
-            set((s) => {
-              const pColls = s.syncedCollections[projectRoot] ?? {};
-              return {
-                syncedCollections: {
-                  ...s.syncedCollections,
-                  [projectRoot]: {
-                    ...pColls,
-                    [sk]: {
-                      ...syncInfo,
-                      libraryVersion: result.libraryVersion,
-                      keyMap: newKeyMap,
-                    },
-                  },
-                },
-                isSyncing: null,
-                syncProgress: null,
-              };
-            });
-          }
+          const bibtex = await zoteroLocalBibtex({ itemKey });
+          await writeBibToProject("references.bib", bibtex);
+          log.debug(`Imported ${citekey} into references.bib`);
         } catch (err) {
           set({
-            error: err instanceof Error ? err.message : "Sync failed",
-            isSyncing: null,
-            syncProgress: null,
+            error: err instanceof Error ? err.message : String(err),
           });
         }
-      },
-
-      removeCollection: (collectionKey) => {
-        const projectRoot = useDocumentStore.getState().projectRoot;
-        if (!projectRoot) return;
-
-        const sk = storeKey(collectionKey);
-        set((s) => {
-          const projectColls = s.syncedCollections[projectRoot] ?? {};
-          const { [sk]: _, ...rest } = projectColls;
-          return {
-            syncedCollections: {
-              ...s.syncedCollections,
-              [projectRoot]: rest,
-            },
-          };
-        });
       },
     }),
     {
       name: STORAGE_KEYS.zotero,
       partialize: (state) => ({
-        apiKey: state.apiKey,
-        userID: state.userID,
-        username: state.username,
+        dataDir: state.dataDir,
         syncedCollections: state.syncedCollections,
       }),
-      onRehydrateStorage: () => (state) => {
-        if (state?.apiKey) {
-          state.isAuthenticated = true;
-        }
-      },
     },
   ),
 );
+
+export { storeKey, sanitizeFileName, parseBibEntries };
