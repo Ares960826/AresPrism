@@ -3,6 +3,9 @@
 # Jujutsu colocated metadata (do not commit)
 .jj/
 
+# Agent browser snapshots (do not commit)
+.playwright-mcp/
+
 # Local engineering notes — not part of the public product tree
 AGENTS.md
 docs/internal/
