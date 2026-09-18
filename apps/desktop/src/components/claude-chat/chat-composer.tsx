@@ -50,8 +50,23 @@ import {
   type OpenAiCompatibleCredentialInfo,
 } from "@/stores/claude-setup-store";
 import { useDocumentStore, type ProjectFile } from "@/stores/document-store";
+import { useSettingsStore } from "@/stores/settings-store";
+import {
+  AGENT_EFFORTS,
+  AGENT_OPTIONS,
+  agentLabel,
+  defaultAgentEffort,
+  defaultAgentModel,
+  describeAgentModel,
+  effortAbbrev,
+  mergeAgentModels,
+  type AgentKind,
+  type AgentModelIcon,
+  type AgentModelOption,
+} from "@/lib/agent-kind";
 import { getUniqueTargetName } from "@/lib/tauri/fs";
 import {
+  getAgentIconSrc,
   getProviderDisplayName,
   getProviderIconSrc,
 } from "@/lib/provider-icons";
@@ -187,15 +202,41 @@ function formatGuidanceText(guidance: QueuedGuidance) {
     : guidance.prompt;
 }
 
-type EffortLevel = "low" | "medium" | "high";
-const EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high"];
-
-function effortShortLabel(level: EffortLevel) {
-  return level === "low" ? "L" : level === "medium" ? "M" : "H";
+function effortShortLabel(level: string) {
+  switch (level) {
+    case "low":
+      return "L";
+    case "medium":
+      return "M";
+    case "high":
+      return "H";
+    case "xhigh":
+      return "xH";
+    case "ultra":
+      return "U";
+    case "max":
+      return "Max";
+    case "thinking":
+      return "Think";
+    case "no-thinking":
+      return "Off";
+    default:
+      return level;
+  }
 }
 
-function effortDisplayLabel(level: EffortLevel) {
-  return effortShortLabel(level);
+function AgentModelGlyph({ icon }: { icon: AgentModelIcon }) {
+  const className = "size-3.5 shrink-0";
+  switch (icon) {
+    case "sparkles":
+      return <SparklesIcon className={className} />;
+    case "rabbit":
+      return <RabbitIcon className={className} />;
+    case "layers":
+      return <LayersIcon className={className} />;
+    default:
+      return <ZapIcon className={className} />;
+  }
 }
 
 function claudeModelDisplayName(model: string) {
@@ -216,9 +257,11 @@ function claudeModelDisplayName(model: string) {
 function EffortControls({
   effortLevel,
   setEffortLevel,
+  levels,
 }: {
-  effortLevel: EffortLevel;
-  setEffortLevel: (level: EffortLevel) => void;
+  effortLevel: string;
+  setEffortLevel: (level: string) => void;
+  levels: { id: string; label: string }[];
 }) {
   return (
     <>
@@ -226,19 +269,19 @@ function EffortControls({
       <div className="px-2 py-1 font-medium text-muted-foreground text-xs">
         Effort
       </div>
-      <div className="flex gap-1 px-2 pb-2">
-        {EFFORT_LEVELS.map((level) => (
+      <div className="flex flex-wrap gap-1 px-2 pb-2">
+        {levels.map((level) => (
           <button
-            key={level}
+            key={level.id}
             className={cn(
-              "flex-1 rounded-md py-1 text-center font-medium text-xs transition-colors",
-              effortLevel === level
+              "min-w-8 flex-1 rounded-md px-1 py-1 text-center font-medium text-xs transition-colors",
+              effortLevel === level.id
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground hover:bg-muted/80",
             )}
-            onClick={() => setEffortLevel(level)}
+            onClick={() => setEffortLevel(level.id)}
           >
-            {effortDisplayLabel(level)}
+            {effortAbbrev(level.id)}
           </button>
         ))}
       </div>
@@ -274,6 +317,19 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
   );
   const effortLevel = useClaudeChatStore((s) => s.effortLevel);
   const setEffortLevel = useClaudeChatStore((s) => s.setEffortLevel);
+  const agentKind = useSettingsStore((s) => s.agentKind);
+  const setAgentKind = useSettingsStore((s) => s.setAgentKind);
+  const agentModels = useSettingsStore((s) => s.agentModels);
+  const setAgentModel = useSettingsStore((s) => s.setAgentModel);
+  const [liveAgentModels, setLiveAgentModels] = useState<
+    Partial<Record<AgentKind, string[]>>
+  >({});
+  const [liveAgentEfforts, setLiveAgentEfforts] = useState<
+    Partial<Record<AgentKind, { id: string; label: string }[]>>
+  >({});
+  const [readyCliAgents, setReadyCliAgents] = useState<Set<AgentKind>>(
+    new Set(),
+  );
   const activeTabId = useClaudeChatStore((s) => s.activeTabId);
   const queuedGuidance = useClaudeChatStore(
     (s) =>
@@ -312,13 +368,15 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
   const showClaudeProvider =
     claudeProviderConfigured ||
     (openAiCredentials.length === 0 && setupStatus !== "checking");
-  const selectedProviderCredential =
-    configuredOpenAiCredential ??
-    (!showClaudeProvider ? fallbackProviderCredential : null);
+  const cliAgentActive = agentKind !== "claude";
+  const selectedProviderCredential = cliAgentActive
+    ? null
+    : (configuredOpenAiCredential ??
+      (!showClaudeProvider ? fallbackProviderCredential : null));
   const claudeProviderActive =
-    showClaudeProvider && !selectedProviderCredential;
+    !cliAgentActive && showClaudeProvider && !selectedProviderCredential;
   const providerSelectionReady =
-    claudeProviderActive || !!selectedProviderCredential;
+    cliAgentActive || claudeProviderActive || !!selectedProviderCredential;
   const selectedProviderModel = selectedProviderCredential
     ? selectedProviderModels[selectedProviderCredential.id] ||
       selectedProviderCredential.model
@@ -1246,6 +1304,61 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [modelPickerOpen]);
 
+  useEffect(() => {
+    let cancelled = false;
+    invoke<
+      {
+        id: AgentKind;
+        ready: boolean;
+      }[]
+    >("check_agents_status")
+      .then((result) => {
+        if (cancelled) return;
+        const ready = new Set(
+          result
+            .filter((item) => item.ready && item.id !== "claude")
+            .map((item) => item.id),
+        );
+        setReadyCliAgents(ready);
+        if (agentKind !== "claude" && !ready.has(agentKind)) {
+          setAgentKind("claude");
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [agentKind, setAgentKind]);
+
+  useEffect(() => {
+    if (!modelPickerOpen || !cliAgentActive) return;
+    let cancelled = false;
+    invoke<{ id: string; label: string }[]>("list_agent_models", {
+      agent: agentKind,
+    })
+      .then((result) => {
+        if (cancelled) return;
+        setLiveAgentModels((prev) => ({
+          ...prev,
+          [agentKind]: result.map((item) => item.id),
+        }));
+      })
+      .catch(() => {});
+    invoke<{ id: string; label: string }[]>("list_agent_efforts", {
+      agent: agentKind,
+    })
+      .then((result) => {
+        if (cancelled) return;
+        if (result.length > 0) {
+          setLiveAgentEfforts((prev) => ({ ...prev, [agentKind]: result }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [modelPickerOpen, cliAgentActive, agentKind]);
+
   const claudeModelOptions = [
     {
       id: "sonnet" as const,
@@ -1365,6 +1478,55 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                 <div className="px-2 py-1 font-medium text-muted-foreground text-xs">
                   Provider
                 </div>
+                {AGENT_OPTIONS.filter(
+                  (option) =>
+                    option.id !== "claude" && readyCliAgents.has(option.id),
+                ).map((option) => {
+                  const active = agentKind === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
+                        active
+                          ? "bg-accent text-accent-foreground"
+                          : "hover:bg-muted",
+                      )}
+                      onClick={() => {
+                        setAgentKind(option.id);
+                        setSelectedProviderCredentialId(
+                          CLAUDE_CODE_PROVIDER_ID,
+                        );
+                        const allowed = AGENT_EFFORTS[option.id].map(
+                          (item) => item.id,
+                        );
+                        if (!allowed.includes(effortLevel)) {
+                          setEffortLevel(defaultAgentEffort(option.id));
+                        }
+                      }}
+                    >
+                      {getAgentIconSrc(option.id) ? (
+                        <img
+                          src={getAgentIconSrc(option.id) ?? ""}
+                          alt=""
+                          className="size-4 shrink-0 object-contain"
+                        />
+                      ) : (
+                        <SparklesIcon className="size-3.5 shrink-0" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium text-xs">
+                          {option.label}
+                        </div>
+                        <div className="truncate text-muted-foreground text-xs">
+                          {agentModels[option.id] ||
+                            defaultAgentModel(option.id)}
+                        </div>
+                      </div>
+                      {active && <CheckIcon className="size-3 shrink-0" />}
+                    </button>
+                  );
+                })}
                 {showClaudeProvider && (
                   <button
                     className={cn(
@@ -1374,6 +1536,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                         : "hover:bg-muted",
                     )}
                     onClick={() => {
+                      setAgentKind("claude");
                       setSelectedProviderCredentialId(CLAUDE_CODE_PROVIDER_ID);
                     }}
                   >
@@ -1419,6 +1582,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                   const isDeleting = deletingProviderId === credential.id;
                   const selectCredential = () => {
                     if (isDeleting) return;
+                    setAgentKind("claude");
                     setSelectedProviderCredentialId(credential.id);
                   };
 
@@ -1509,7 +1673,43 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                   <div className="px-2 py-1 font-medium text-muted-foreground text-xs">
                     Model
                   </div>
-                  {claudeProviderActive ? (
+                  {cliAgentActive ? (
+                    mergeAgentModels(
+                      agentKind,
+                      liveAgentModels[agentKind] ?? [],
+                    ).map((model: AgentModelOption) => {
+                      const selected =
+                        (agentModels[agentKind] ||
+                          defaultAgentModel(agentKind)) === model.id;
+                      return (
+                        <button
+                          key={model.id}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
+                            selected
+                              ? "bg-accent text-accent-foreground"
+                              : "hover:bg-muted",
+                          )}
+                          onClick={() => setAgentModel(agentKind, model.id)}
+                        >
+                          <AgentModelGlyph
+                            icon={describeAgentModel(model.id).icon}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium text-xs">
+                              {model.label}
+                            </div>
+                            <div className="truncate text-muted-foreground text-xs">
+                              {model.desc}
+                            </div>
+                          </div>
+                          {selected && (
+                            <CheckIcon className="size-3 shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })
+                  ) : claudeProviderActive ? (
                     claudeModelOptions.map((m) => (
                       <button
                         key={m.id}
@@ -1590,11 +1790,16 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                     </div>
                   )}
                 </div>
-                {(claudeProviderActive || selectedProviderCredential) && (
+                {(cliAgentActive ||
+                  claudeProviderActive ||
+                  selectedProviderCredential) && (
                   <div className="shrink-0">
                     <EffortControls
                       effortLevel={effortLevel}
                       setEffortLevel={setEffortLevel}
+                      levels={
+                        liveAgentEfforts[agentKind] ?? AGENT_EFFORTS[agentKind]
+                      }
                     />
                   </div>
                 )}
@@ -1887,7 +2092,27 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
               title="Switch provider or model"
               className="flex h-7 items-center gap-1.5 rounded-full px-2 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
             >
-              {selectedProviderCredential ? (
+              {cliAgentActive ? (
+                <>
+                  {getAgentIconSrc(agentKind) ? (
+                    <img
+                      src={getAgentIconSrc(agentKind) ?? ""}
+                      alt=""
+                      className="size-3.5 shrink-0 object-contain"
+                    />
+                  ) : (
+                    <SparklesIcon className="size-3" />
+                  )}
+                  <span>{agentLabel(agentKind)}</span>
+                  <span className="max-w-32 truncate text-muted-foreground/60">
+                    {agentModels[agentKind] || defaultAgentModel(agentKind)}
+                  </span>
+                  <span className="text-muted-foreground/60">
+                    {effortShortLabel(effortLevel)}
+                  </span>
+                  <ChevronDownIcon className="size-3" />
+                </>
+              ) : selectedProviderCredential ? (
                 <>
                   {selectedProviderIconSrc ? (
                     <img

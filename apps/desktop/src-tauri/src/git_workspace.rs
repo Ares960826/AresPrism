@@ -16,8 +16,7 @@ pub struct GitCommitInfo {
 }
 
 fn open_repo(project_root: &str) -> Result<Repository, String> {
-    Repository::discover(Path::new(project_root))
-        .map_err(|e| format!("No git repository: {e}"))
+    Repository::discover(Path::new(project_root)).map_err(|e| format!("No git repository: {e}"))
 }
 
 #[tauri::command]
@@ -83,8 +82,7 @@ pub fn git_commit(project_root: String, message: String) -> Result<String, Strin
     index.write().map_err(|e| e.to_string())?;
     let tree_id = index.write_tree().map_err(|e| e.to_string())?;
     let tree = repo.find_tree(tree_id).map_err(|e| e.to_string())?;
-    let sig = Signature::now("AresPrism", "aresprism@local")
-        .map_err(|e| e.to_string())?;
+    let sig = Signature::now("AresPrism", "aresprism@local").map_err(|e| e.to_string())?;
     let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
     let parent_refs: Vec<&git2::Commit> = match &parent {
         Some(commit) => vec![commit],

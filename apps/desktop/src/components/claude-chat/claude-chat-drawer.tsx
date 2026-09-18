@@ -14,10 +14,12 @@ import { useClaudeEvents } from "@/hooks/use-claude-events";
 import { ChatMessages } from "./chat-messages";
 import { ChatComposer } from "./chat-composer";
 import { ChatTabBar } from "./chat-tab-bar";
+import { FloatingPane } from "@/components/workspace/floating-pane";
 
 const MIN_HEIGHT = 200;
 const DEFAULT_HEIGHT = 280;
-const SCROLLBAR_GUTTER = 14;
+/** Leave the CodeMirror overlay scrollbar clickable when chat is docked. */
+const SCROLLBAR_GUTTER = 16;
 
 export function ClaudeChatDrawer({
   editorEl,
@@ -39,7 +41,6 @@ export function ClaudeChatDrawer({
 
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isDragging, setIsDragging] = useState(false);
-  const [floatBox, setFloatBox] = useState({ left: 80, width: 640 });
   const panelRef = useRef<HTMLDivElement>(null);
   const hasDraggedRef = useRef(false);
   const heightRef = useRef(height);
@@ -49,25 +50,6 @@ export function ClaudeChatDrawer({
     const shouldOpen = anyStreaming || pendingAttachments.length > 0;
     if (shouldOpen && !isOpen) setIsOpen(true);
   }, [anyStreaming, isOpen, pendingAttachments, setIsOpen]);
-
-  useEffect(() => {
-    if (chatMode !== "floating" || !editorEl) return;
-    const update = () => {
-      const rect = editorEl.getBoundingClientRect();
-      setFloatBox({
-        left: rect.left,
-        width: Math.max(280, rect.width - SCROLLBAR_GUTTER),
-      });
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(editorEl);
-    window.addEventListener("resize", update);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, [chatMode, editorEl]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -97,63 +79,39 @@ export function ClaudeChatDrawer({
 
   const docked = chatMode === "docked";
 
-  const panel = (
-    <div
-      ref={panelRef}
-      className={cn(
-        "pointer-events-auto flex w-full flex-col overflow-hidden border-border bg-background",
-        docked
-          ? "relative h-full min-h-0 border-t"
-          : "fixed z-40 border shadow-lg",
-        isDragging && "!transition-none",
-      )}
-      style={
-        docked
-          ? { height }
-          : {
-              height,
-              left: floatBox.left,
-              width: floatBox.width,
-              bottom: 8,
-            }
-      }
-    >
+  const panelBody = (
+    <>
       <div
-        className="group flex shrink-0 cursor-row-resize items-center justify-center gap-2 border-border border-b py-1.5 hover:bg-muted/50"
+        className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-row-resize"
         onMouseDown={handleMouseDown}
-      >
-        <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
-        <ChevronDownIcon className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />
-        <div className="absolute right-2 flex items-center gap-1">
-          <button
-            type="button"
-            className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={docked ? "Float" : "Dock"}
-            onClick={(e) => {
-              e.stopPropagation();
-              setChatMode(docked ? "floating" : "docked");
-            }}
-          >
-            {docked ? (
-              <PictureInPicture2Icon className="size-3.5" />
-            ) : (
-              <PanelBottomIcon className="size-3.5" />
-            )}
-          </button>
-          <button
-            type="button"
-            className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Close"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsOpen(false);
-            }}
-          >
-            <ChevronDownIcon className="size-3.5" />
-          </button>
-        </div>
-      </div>
-      <ChatTabBar />
+        title="Drag to resize"
+      />
+      <ChatTabBar
+        extraActions={
+          <>
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title={docked ? "Float" : "Dock"}
+              onClick={() => setChatMode(docked ? "floating" : "docked")}
+            >
+              {docked ? (
+                <PictureInPicture2Icon className="size-3.5" />
+              ) : (
+                <PanelBottomIcon className="size-3.5" />
+              )}
+            </button>
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="Close"
+              onClick={() => setIsOpen(false)}
+            >
+              <ChevronDownIcon className="size-3.5" />
+            </button>
+          </>
+        }
+      />
       {error && (
         <div className="mx-3 mt-2 mb-1 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-destructive text-xs">
           {error}
@@ -163,7 +121,7 @@ export function ClaudeChatDrawer({
         <ChatMessages />
       </div>
       <ChatComposer isOpen={isOpen} />
-    </div>
+    </>
   );
 
   if (!isOpen) {
@@ -171,7 +129,8 @@ export function ClaudeChatDrawer({
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className="pointer-events-auto absolute right-6 bottom-4 z-20 flex size-10 items-center justify-center rounded-full border border-border bg-background shadow-md hover:shadow-lg"
+        className="pointer-events-auto absolute bottom-4 z-20 flex size-10 items-center justify-center rounded-full border border-border bg-background shadow-md hover:shadow-lg"
+        style={{ right: SCROLLBAR_GUTTER + 8 }}
         aria-label="Open AI Assistant"
       >
         <MessageCircleIcon className="size-4 text-foreground" />
@@ -182,7 +141,34 @@ export function ClaudeChatDrawer({
   }
 
   if (!docked) {
-    return createPortal(panel, document.body);
+    return createPortal(
+      <FloatingPane title="AI" onDock={() => setChatMode("docked")}>
+        <div
+          ref={panelRef}
+          className={cn(
+            "relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-background",
+            isDragging && "!transition-none",
+          )}
+        >
+          {panelBody}
+        </div>
+      </FloatingPane>,
+      document.body,
+    );
   }
-  return panel;
+
+  if (!editorEl) return null;
+  return createPortal(
+    <div
+      ref={panelRef}
+      className={cn(
+        "pointer-events-auto absolute bottom-0 left-0 z-20 flex flex-col overflow-hidden border-border border-t bg-background shadow-[0_-8px_24px_rgba(0,0,0,0.12)]",
+        isDragging && "!transition-none",
+      )}
+      style={{ height, right: SCROLLBAR_GUTTER }}
+    >
+      {panelBody}
+    </div>,
+    editorEl,
+  );
 }

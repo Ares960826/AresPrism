@@ -1,4 +1,4 @@
-import { TypeIcon, FileCodeIcon } from "lucide-react";
+import { TypeIcon, FileCodeIcon, KeyRoundIcon } from "lucide-react";
 import { useState } from "react";
 import {
   Dialog,
@@ -6,11 +6,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AppearanceSettings, LatexSettings } from "@/components/settings-form";
+import {
+  AgentSettings,
+  AppearanceSettings,
+  LatexSettings,
+} from "@/components/settings-form";
+import { ClaudeSetup } from "@/components/claude-setup";
 import { useSettingsStore } from "@/stores/settings-store";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "appearance" | "latex";
+type SettingsTab = "appearance" | "latex" | "provider";
 
 export function SettingsDialog() {
   const open = useSettingsStore((s) => s.settingsOpen);
@@ -19,12 +24,12 @@ export function SettingsDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg">
-        <DialogHeader className="border-border border-b px-5 py-3">
+      <DialogContent className="flex max-h-[85vh] min-h-[min(20rem,85vh)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="shrink-0 border-border border-b px-5 py-3">
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
-        <div className="grid min-h-80 grid-cols-[9rem_minmax(0,1fr)]">
-          <aside className="space-y-1 border-border border-r p-2">
+        <div className="grid min-h-0 flex-1 grid-cols-[9rem_minmax(0,1fr)] overflow-hidden">
+          <aside className="space-y-1 overflow-y-auto border-border border-r p-2">
             <TabButton
               active={tab === "appearance"}
               icon={TypeIcon}
@@ -37,9 +42,26 @@ export function SettingsDialog() {
               label="LaTeX"
               onClick={() => setTab("latex")}
             />
+            <TabButton
+              active={tab === "provider"}
+              icon={KeyRoundIcon}
+              label="Provider"
+              onClick={() => setTab("provider")}
+            />
           </aside>
-          <div className="min-w-0 overflow-auto p-4">
-            {tab === "appearance" ? <AppearanceSettings /> : <LatexSettings />}
+          <div className="min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-4">
+            {tab === "appearance" ? (
+              <AppearanceSettings />
+            ) : tab === "latex" ? (
+              <LatexSettings />
+            ) : (
+              <div className="space-y-6">
+                <AgentSettings />
+                <div className="border-border border-t pt-4">
+                  <ClaudeSetup variant="embedded" />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>

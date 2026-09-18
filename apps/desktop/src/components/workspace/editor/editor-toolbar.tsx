@@ -16,6 +16,7 @@ import {
   PlusIcon,
   BookMarkedIcon,
   ExternalLinkIcon,
+  LayersIcon,
 } from "lucide-react";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { useDocumentStore } from "@/stores/document-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { compileIndependentRoots } from "@/lib/latex-compiler";
 import { OverflowToolbar } from "@/components/workspace/overflow-toolbar";
 
 interface EditorInfo {
@@ -153,6 +155,12 @@ export function EditorToolbar({
 
   const wrapSelection = (wrapper: string) => {
     insertText(wrapper, wrapper);
+  };
+
+  const compileOpenDocuments = () => {
+    const { openFileIds, activeFileId } = useDocumentStore.getState();
+    const ids = openFileIds.length > 0 ? openFileIds : [activeFileId];
+    void compileIndependentRoots(ids);
   };
 
   const zoomIn = () => onImageScaleChange?.(Math.min(4, imageScale + 0.25));
@@ -466,6 +474,12 @@ export function EditorToolbar({
       ]}
       trailing={
         <>
+          <TooltipIconButton
+            tooltip="Compile open documents in parallel"
+            onClick={compileOpenDocuments}
+          >
+            <LayersIcon className="size-4" />
+          </TooltipIconButton>
           {editors.length === 1 && (
             <TooltipIconButton
               tooltip={`Open in ${editors[0].name}`}

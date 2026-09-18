@@ -104,6 +104,7 @@ export function useClaudeEvents() {
   // ── One-time listener setup (mount only) ──
   useEffect(() => {
     function setUserVisibleError(tabId: string, message: string) {
+      if (/additional input from stdin/i.test(message)) return;
       lastErrorRef.current.set(tabId, message);
       useClaudeChatStore.getState()._setError(tabId, message);
     }
@@ -305,9 +306,14 @@ export function useClaudeEvents() {
             if (
               toolUse &&
               !block.is_error &&
-              /^(Write|write|Edit|edit|MultiEdit|multiedit)$/.test(toolUse.name)
+              /^(Write|write|Edit|edit|MultiEdit|multiedit|write_file|edit_file|str_replace|apply_patch)$/i.test(
+                toolUse.name,
+              )
             ) {
-              const fp = toolUse.input?.file_path || toolUse.input?.path;
+              const fp =
+                toolUse.input?.file_path ||
+                toolUse.input?.path ||
+                toolUse.input?.filePath;
               if (fp) {
                 registerProposedChange(fp, block.tool_use_id!, toolUse.name);
                 if (/\.(tex|bib|sty|cls|dtx)$/i.test(fp)) {
@@ -381,15 +387,15 @@ export function useClaudeEvents() {
             isDirectProvider
               ? "AI provider request failed to start. Check the provider API key, Base URL, model name, and model access."
               : isWindows
-                ? "Claude process failed to start. Check that Claude Code CLI is installed and git-bash is available."
-                : "Claude process failed to start. Check that Claude Code CLI is installed.",
+                ? "Agent process failed to start. Check that the selected CLI is installed and git-bash is available."
+                : "Agent process failed to start. Check that the selected CLI is installed.",
           );
         } else {
           chatStore._setError(
             tabId,
             isDirectProvider
               ? "AI provider request stopped unexpectedly. Check the provider API key, model access, Base URL, tool-call support, or rate limits."
-              : "Claude process exited unexpectedly. This may be due to rate limiting or an API error.",
+              : "Agent process exited unexpectedly. This may be due to rate limiting or an API error.",
           );
         }
       }

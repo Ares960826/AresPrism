@@ -23,6 +23,8 @@ import { clearScrollPositionCache } from "@/components/workspace/preview/pdf-vie
 import { clearZoomCache } from "@/components/workspace/preview/pdf-preview";
 import { clearEditorStateCache } from "@/components/workspace/editor/latex-editor";
 import { useProjectStore } from "@/stores/project-store";
+import { useSettingsStore } from "@/stores/settings-store";
+import { inferCompileDocuments } from "@/lib/compile-documents";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("document");
@@ -69,6 +71,11 @@ export function hasPdfData(): boolean {
   return _currentPdfRootId != null && _pdfBytesCache.has(_currentPdfRootId);
 }
 
+/** Root file ids that currently have a compiled PDF in cache. */
+export function listPdfRootIds(): string[] {
+  return Array.from(_pdfBytesCache.keys());
+}
+
 export function clearPdfBytesCache() {
   _pdfBytesCache.clear();
   _currentPdfRootId = null;
@@ -79,6 +86,8 @@ interface DocumentState {
   files: ProjectFile[];
   folders: string[];
   activeFileId: string;
+  openFileIds: string[];
+  compilingRootIds: string[];
   cursorPosition: number;
   selectionRange: { start: number; end: number } | null;
   jumpToPosition: number | null;
@@ -102,6 +111,12 @@ interface DocumentState {
   renameProject: (newName: string) => Promise<void>;
   closeProject: () => void;
   setActiveFile: (id: string) => void;
+  openFileInTab: (id: string) => void;
+  replaceOpenFile: (id: string) => void;
+  closeFileTab: (id: string) => void;
+  setPreviewRoot: (id: string) => void;
+  startCompile: (rootId: string) => void;
+  endCompile: (rootId: string) => void;
   addFile: (
     file: Omit<ProjectFile, "id" | "isDirty">,
     opts?: { activate?: boolean },
@@ -360,6 +375,8 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   files: [],
   folders: [],
   activeFileId: "",
+  openFileIds: [],
+  compilingRootIds: [],
   cursorPosition: 0,
   selectionRange: null,
   jumpToPosition: null,
@@ -427,18 +444,41 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       projectFiles.push(pf);
     }
 
-    // Find the main tex file
+    const settings = useSettingsStore.getState();
+    const storedMains = (settings.compileDocumentsByProject[rootPath] ?? [])
+      .map((doc) => doc.mainFile)
+      .filter((path) => projectFiles.some((file) => file.id === path));
+    const inferredMains = inferCompileDocuments(
+      projectFiles,
+      settings.citationFile,
+    )
+      .map((doc) => doc.mainFile)
+      .filter((path) => projectFiles.some((file) => file.id === path));
+    const configuredMains =
+      storedMains.length > 0 ? storedMains : inferredMains;
     const mainTex =
+      projectFiles.find((f) => configuredMains.includes(f.id)) ||
       projectFiles.find(
         (f) => f.name === "main.tex" || f.name === "document.tex",
-      ) || projectFiles.find((f) => f.type === "tex");
+      ) ||
+      projectFiles.find((f) => f.type === "tex");
+    const openFileIds =
+      configuredMains.length > 0
+        ? configuredMains
+        : mainTex?.id
+          ? [mainTex.id]
+          : projectFiles[0]?.id
+            ? [projectFiles[0].id]
+            : [];
 
     clearPdfBytesCache();
     set({
       projectRoot: rootPath,
       files: projectFiles,
       folders: fsFolders,
-      activeFileId: mainTex?.id || projectFiles[0]?.id || "",
+      activeFileId: openFileIds[0] || mainTex?.id || projectFiles[0]?.id || "",
+      openFileIds,
+      compilingRootIds: [],
       pdfRevision: 0,
       compileError: null,
       compileErrorCache: new Map(),
@@ -544,6 +584,8 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
       files: [],
       folders: [],
       activeFileId: "",
+      openFileIds: [],
+      compilingRootIds: [],
       pdfRevision: 0,
       compileError: null,
       compileErrorCache: new Map(),
@@ -552,6 +594,77 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     });
     // Reset chat session so stale messages don't leak into the next project
     useClaudeChatStore.getState().newSession();
+  },
+
+  openFileInTab: (id) => {
+    const state = get();
+    if (!state.files.some((file) => file.id === id)) return;
+    const openFileIds = state.openFileIds.includes(id)
+      ? state.openFileIds
+      : [...state.openFileIds, id];
+    set({ openFileIds });
+    get().setActiveFile(id);
+  },
+
+  replaceOpenFile: (id) => {
+    const state = get();
+    if (!state.files.some((file) => file.id === id)) return;
+    if (state.openFileIds.includes(id)) {
+      get().setActiveFile(id);
+      return;
+    }
+    let openFileIds = state.openFileIds;
+    if (openFileIds.length === 0) {
+      openFileIds = [id];
+    } else if (openFileIds.includes(state.activeFileId)) {
+      openFileIds = openFileIds.map((item) =>
+        item === state.activeFileId ? id : item,
+      );
+    } else {
+      openFileIds = [...openFileIds, id];
+    }
+    set({ openFileIds });
+    get().setActiveFile(id);
+  },
+
+  closeFileTab: (id) => {
+    const state = get();
+    if (state.openFileIds.length <= 1) return;
+    if (!state.openFileIds.includes(id)) return;
+    const openFileIds = state.openFileIds.filter((item) => item !== id);
+    set({ openFileIds });
+    if (state.activeFileId === id) {
+      get().setActiveFile(openFileIds[openFileIds.length - 1]);
+    }
+  },
+
+  setPreviewRoot: (id) => {
+    if (!_pdfBytesCache.has(id)) return;
+    const changed = _currentPdfRootId !== id;
+    _currentPdfRootId = id;
+    const cachedError = get().compileErrorCache.get(id) ?? null;
+    set((s) => ({
+      compileError: cachedError,
+      ...(changed ? { pdfRevision: s.pdfRevision + 1 } : {}),
+    }));
+  },
+
+  startCompile: (rootId) => {
+    set((s) => {
+      const compilingRootIds = s.compilingRootIds.includes(rootId)
+        ? s.compilingRootIds
+        : [...s.compilingRootIds, rootId];
+      return { compilingRootIds, isCompiling: compilingRootIds.length > 0 };
+    });
+  },
+
+  endCompile: (rootId) => {
+    set((s) => {
+      const compilingRootIds = s.compilingRootIds.filter(
+        (item) => item !== rootId,
+      );
+      return { compilingRootIds, isCompiling: compilingRootIds.length > 0 };
+    });
   },
 
   setActiveFile: (id) => {
@@ -589,7 +702,14 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     const activate = opts?.activate !== false;
     set((state) => ({
       files: [...state.files, { ...file, id, isDirty: false }],
-      ...(activate ? { activeFileId: id } : {}),
+      ...(activate
+        ? {
+            activeFileId: id,
+            openFileIds: state.openFileIds.includes(id)
+              ? state.openFileIds
+              : [...state.openFileIds, id],
+          }
+        : {}),
     }));
     return id;
   },
@@ -621,9 +741,15 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     if (switchingActive && newRootId) {
       _currentPdfRootId = _pdfBytesCache.has(newRootId) ? newRootId : null;
     }
+    const openFileIds = (
+      state.openFileIds.includes(newActiveId)
+        ? state.openFileIds.filter((item) => item !== id)
+        : [...state.openFileIds.filter((item) => item !== id), newActiveId]
+    ).filter((item) => newFiles.some((file) => file.id === item));
     set((s) => ({
       files: newFiles,
       activeFileId: newActiveId,
+      openFileIds: openFileIds.length > 0 ? openFileIds : [newActiveId],
       compileErrorCache,
       lastCompiledGenerations,
       ...(switchingActive ? { pdfRevision: s.pdfRevision + 1 } : {}),
@@ -816,7 +942,11 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     }
   },
 
-  setIsCompiling: (isCompiling) => set({ isCompiling }),
+  setIsCompiling: (isCompiling) =>
+    set((s) => ({
+      isCompiling,
+      compilingRootIds: isCompiling ? s.compilingRootIds : [],
+    })),
   setPendingRecompile: (pending) => set({ pendingRecompile: pending }),
 
   setIsSaving: (isSaving) => set({ isSaving }),

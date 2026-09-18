@@ -59,6 +59,8 @@ describe("useDocumentStore", () => {
       files: [makeFile()],
       folders: [],
       activeFileId: "main.tex",
+      openFileIds: ["main.tex"],
+      compilingRootIds: [],
       cursorPosition: 5, // after "Hello"
       selectionRange: null,
       jumpToPosition: null,
@@ -424,6 +426,28 @@ describe("useDocumentStore", () => {
       const state = useDocumentStore.getState();
       expect(state.files).toHaveLength(2);
       expect(state.activeFileId).toBe("refs.bib");
+    });
+  });
+
+  describe("editor tabs", () => {
+    it("opens another file in a new tab without replacing the current one", () => {
+      useDocumentStore.setState({
+        files: [
+          makeFile(),
+          makeFile({
+            id: "supplement.tex",
+            name: "supplement.tex",
+            relativePath: "supplement.tex",
+            absolutePath: "/project/supplement.tex",
+          }),
+        ],
+        openFileIds: ["main.tex"],
+        activeFileId: "main.tex",
+      });
+      useDocumentStore.getState().openFileInTab("supplement.tex");
+      const state = useDocumentStore.getState();
+      expect(state.openFileIds).toEqual(["main.tex", "supplement.tex"]);
+      expect(state.activeFileId).toBe("supplement.tex");
     });
   });
 

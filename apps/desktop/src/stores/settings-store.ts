@@ -2,7 +2,14 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { STORAGE_KEYS } from "@/lib/app-identity";
 import type { EditorFontId, UiFontId } from "@/lib/appearance";
+import {
+  defaultAgentModel,
+  isAgentKind,
+  type AgentKind,
+} from "@/lib/agent-kind";
+import type { CompileDocument } from "@/lib/compile-documents";
 
+export type { AgentKind };
 export type CompilerBackend = "tectonic" | "texlive" | "latexmk";
 export type TexEnginePref = "auto" | "pdflatex" | "xelatex" | "lualatex";
 
@@ -23,6 +30,15 @@ interface SettingsState {
   setEditorFontSize: (size: number) => void;
   citationFile: string;
   setCitationFile: (path: string) => void;
+  compileDocumentsByProject: Record<string, CompileDocument[]>;
+  setProjectCompileDocuments: (
+    projectRoot: string,
+    documents: CompileDocument[],
+  ) => void;
+  agentKind: AgentKind;
+  setAgentKind: (kind: AgentKind) => void;
+  agentModels: Partial<Record<AgentKind, string>>;
+  setAgentModel: (kind: AgentKind, model: string) => void;
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
 }
@@ -44,8 +60,23 @@ export const useSettingsStore = create<SettingsState>()(
       setUiFontSize: (size) => set({ uiFontSize: size }),
       editorFontSize: 14,
       setEditorFontSize: (size) => set({ editorFontSize: size }),
-      citationFile: "references.bib",
+      citationFile: "",
       setCitationFile: (path) => set({ citationFile: path }),
+      compileDocumentsByProject: {},
+      setProjectCompileDocuments: (projectRoot, documents) =>
+        set((state) => ({
+          compileDocumentsByProject: {
+            ...state.compileDocumentsByProject,
+            [projectRoot]: documents,
+          },
+        })),
+      agentKind: "claude",
+      setAgentKind: (kind) => set({ agentKind: kind }),
+      agentModels: {},
+      setAgentModel: (kind, model) =>
+        set((state) => ({
+          agentModels: { ...state.agentModels, [kind]: model },
+        })),
       settingsOpen: false,
       setSettingsOpen: (open) => set({ settingsOpen: open }),
     }),
@@ -60,7 +91,35 @@ export const useSettingsStore = create<SettingsState>()(
         uiFontSize: state.uiFontSize,
         editorFontSize: state.editorFontSize,
         citationFile: state.citationFile,
+        compileDocumentsByProject: state.compileDocumentsByProject,
+        agentKind: state.agentKind,
+        agentModels: state.agentModels,
       }),
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<SettingsState>;
+        const agentKind = isAgentKind(saved.agentKind)
+          ? saved.agentKind
+          : "claude";
+        const agentModels =
+          saved.agentModels && typeof saved.agentModels === "object"
+            ? saved.agentModels
+            : {};
+        const compileDocumentsByProject =
+          saved.compileDocumentsByProject &&
+          typeof saved.compileDocumentsByProject === "object"
+            ? saved.compileDocumentsByProject
+            : {};
+        return {
+          ...current,
+          ...saved,
+          agentKind,
+          agentModels: {
+            [agentKind]: defaultAgentModel(agentKind),
+            ...agentModels,
+          },
+          compileDocumentsByProject,
+        };
+      },
     },
   ),
 );

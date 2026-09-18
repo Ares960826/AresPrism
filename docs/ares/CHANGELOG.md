@@ -2,6 +2,46 @@
 
 只记本产品相对上一版的差。上游 ClaudePrism 的历史仍在 git 里，不抄到这里。
 
+## 0.7.1 — 2026-09-19
+
+- 关掉 Codex / Grok / Kimi 的 stdin，不再出现红条 “Reading additional input from stdin…”
+- 嵌入聊天贴在编辑器底部，右侧留出垂直滚动条
+- 设置里添加 Provider 时对话框限高，内容在面板内滚动，不再撑出窗口
+- 「Add another main file」改成按钮；引用文件可以不选
+- 预览工具栏变窄时编译器/引擎菜单保持完整；刷新、翻页、缩放收成简易按钮，不再互相覆盖
+- macOS 红绿灯和顶栏略微下移
+
+## 0.7.0 — 2026-09-19
+
+- Home 水平位置恢复，只略微下移，不再把项目名挤到右边
+- 设置里可配置多个主文件，每个主文件配对一个引用文件；打开项目时按第一项默认编译
+- 聊天 Provider 只列出本机已登录的 CLI；Kimi 未登录时不出现在选择器，设置里仍显示状态
+- Codex 列出 CLI 能用的编码模型，不只当前 config 里的那一个
+- 模型行沿用 Claude Code 的图标 + 简述；思考档用 L/M/H/xH 简写
+- 应用图标换成冰蓝折叠 A
+- 预览浮动窗增加铺满和全屏；AI 浮动改为和预览一样的独立窗口
+
+## 0.6.1 — 2026-09-18
+
+- 含 `\input{glyphtounicode}` / `\pdfgentounicode` 的英文稿会自动用 pdfLaTeX，不再被全局 XeLaTeX 编挂（不改用户 TeX）
+- Tectonic 遇到 pdfTeX 专用命令时改走 TeX Live / latexmk
+- 本机 CLI 的模型和思考档只反映本机配置：Codex 含 xhigh/ultra/max，Grok 含 xhigh，Kimi 仅 Kimi 模型与 thinking 开关
+- Codex / Grok / Kimi 使用对应官方图标
+- 编辑页 Home 避开 macOS 红绿灯
+
+## 0.6.0 — 2026-09-18
+
+- 聊天去掉继承来的拖拽横条；浮动/关闭放到对话标签栏。高度仍可从顶边拖
+- 本机 CLI 放进 Provider：Codex / Grok / Kimi 有模型和思考档（L/M/H）
+- 文件树右键「在新标签打开」；编辑栏并行编译独立 `\documentclass` 文档；预览用 PDF 标签切换
+- 护眼：行号栏跟主题；PDF 纸色随 Light / Dark / 护眼
+
+## 0.5.0 — 2026-09-18
+
+- 聊天可选用本机 CLI：Claude Code、Codex、Grok Build、Kimi Code（设置 → Agent，或聊天选择器）
+- 非 Claude 的输出归一成现有聊天协议；改文件仍走 Proposed Changes
+- 默认仍是 Claude Code。护眼主题保持可选，不是默认
+
 ## 0.4.0 — 2026-09-18
 
 - 应用字号上限 28；工具提示字号跟随应用字体

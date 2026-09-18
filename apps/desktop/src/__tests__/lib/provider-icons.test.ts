@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getAgentIconSrc,
   getProviderDisplayName,
   getProviderIconSrc,
 } from "@/lib/provider-icons";
@@ -42,5 +43,14 @@ describe("getProviderDisplayName", () => {
 
     expect(getProviderDisplayName(provider)).toBe("Ollama");
     expect(getProviderIconSrc(provider)).toContain("ollama");
+  });
+});
+
+describe("getAgentIconSrc", () => {
+  it("uses official marks for local CLIs", () => {
+    expect(getAgentIconSrc("claude")).toBeTruthy();
+    expect(getAgentIconSrc("codex")).toContain("OpenAI");
+    expect(getAgentIconSrc("kimi")).toContain("Moonshot");
+    expect(getAgentIconSrc("grok")).toContain("Grok");
   });
 });

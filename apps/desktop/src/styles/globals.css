@@ -152,8 +152,8 @@
   html {
     @apply overscroll-y-none scroll-smooth;
     /* macOS overlay titlebar inset — traffic lights safe area */
-    --titlebar-height: 18px;
-    --traffic-light-width: 70px;
+    --titlebar-height: 24px;
+    --traffic-light-width: 78px;
     --workspace-topbar-height: 40px;
     font-size: var(--app-font-size, 16px);
   }
@@ -221,4 +221,23 @@
   position: absolute;
   pointer-events: auto;
   cursor: pointer;
+}
+
+/* CodeMirror gutters follow the app theme instead of a white strip. */
+.cm-editor .cm-gutters {
+  background-color: var(--background) !important;
+  color: var(--muted-foreground);
+  border-right: 1px solid var(--border);
+}
+.cm-editor .cm-activeLineGutter {
+  background-color: var(--muted) !important;
+  color: var(--foreground);
+}
+
+/* PDF page paper follows Light / Dark / 护眼. Text selection stays on top. */
+.dark .mupdf-page > canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+.warm .mupdf-page > canvas {
+  filter: sepia(0.22) saturate(0.72) hue-rotate(68deg) brightness(0.97);
 }

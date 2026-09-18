@@ -64,16 +64,34 @@ fn process_key(window_label: &str, tab_id: &str) -> String {
 /// Events are emitted only to the originating window, tagged with tab_id.
 pub async fn spawn_claude_process(
     window: WebviewWindow,
-    mut cmd: Command,
+    cmd: Command,
     tab_id: String,
     stdin_payload: Option<String>,
     provider_metadata: Option<SpawnProviderMetadata>,
 ) -> Result<(), String> {
+    spawn_streaming_process(window, cmd, tab_id, stdin_payload, provider_metadata, None).await
+}
+
+/// Spawn a CLI and stream stdout lines as `claude-output` events.
+/// `map_line` rewrites vendor JSONL into Claude Code stream-json lines.
+pub async fn spawn_streaming_process(
+    window: WebviewWindow,
+    mut cmd: Command,
+    tab_id: String,
+    stdin_payload: Option<String>,
+    provider_metadata: Option<SpawnProviderMetadata>,
+    map_line: Option<fn(&str) -> Vec<String>>,
+) -> Result<(), String> {
     let window_label = window.label().to_string();
     let process_key = process_key(&window_label, &tab_id);
 
+    // Prompt-on-argv CLIs (Codex/Grok/Kimi, and Claude on non-Windows) must
+    // not inherit an open stdin — Codex then prints
+    // "Reading additional input from stdin..." and treats it as an error.
     if stdin_payload.is_some() {
         cmd.stdin(std::process::Stdio::piped());
+    } else {
+        cmd.stdin(std::process::Stdio::null());
     }
 
     let mut child = cmd.spawn().map_err(|e| {
@@ -133,60 +151,69 @@ pub async fn spawn_claude_process(
     let stdout_task = tokio::spawn(async move {
         let mut lines = stdout_reader.lines();
         let mut line_count: u64 = 0;
-        while let Ok(Some(mut line)) = lines.next_line().await {
-            line_count += 1;
-            let elapsed = start_time.elapsed().as_secs_f64();
+        while let Ok(Some(raw_line)) = lines.next_line().await {
+            let mapped = match map_line {
+                Some(mapper) => mapper(&raw_line),
+                None => vec![raw_line],
+            };
+            for mut line in mapped {
+                line_count += 1;
+                let elapsed = start_time.elapsed().as_secs_f64();
 
-            if let Ok(mut msg) = serde_json::from_str::<serde_json::Value>(&line) {
-                let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("?");
-                let msg_sub = msg.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
-                eprintln!(
-                    "[claude-stdout] [{}] +{:.1}s #{} type={} sub={} len={}",
-                    tab_id_stdout,
-                    elapsed,
-                    line_count,
-                    msg_type,
-                    msg_sub,
-                    line.len()
-                );
+                if let Ok(mut msg) = serde_json::from_str::<serde_json::Value>(&line) {
+                    let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("?");
+                    let msg_sub = msg.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+                    eprintln!(
+                        "[claude-stdout] [{}] +{:.1}s #{} type={} sub={} len={}",
+                        tab_id_stdout,
+                        elapsed,
+                        line_count,
+                        msg_type,
+                        msg_sub,
+                        line.len()
+                    );
 
-                if msg.get("type").and_then(|v| v.as_str()) == Some("system")
-                    && msg.get("subtype").and_then(|v| v.as_str()) == Some("init")
-                {
-                    if let Some(metadata) = provider_metadata_stdout.as_ref() {
-                        if let Some(object) = msg.as_object_mut() {
-                            object.insert(
-                                "provider".to_string(),
-                                serde_json::Value::String(metadata.provider.to_string()),
-                            );
-                            object.insert(
-                                "provider_credential_id".to_string(),
-                                serde_json::Value::String(metadata.provider_credential_id.clone()),
-                            );
-                            object.insert(
-                                "model".to_string(),
-                                serde_json::Value::String(metadata.model.clone()),
-                            );
+                    if msg.get("type").and_then(|v| v.as_str()) == Some("system")
+                        && msg.get("subtype").and_then(|v| v.as_str()) == Some("init")
+                    {
+                        if let Some(metadata) = provider_metadata_stdout.as_ref() {
+                            if let Some(object) = msg.as_object_mut() {
+                                object.insert(
+                                    "provider".to_string(),
+                                    serde_json::Value::String(metadata.provider.to_string()),
+                                );
+                                object.insert(
+                                    "provider_credential_id".to_string(),
+                                    serde_json::Value::String(
+                                        metadata.provider_credential_id.clone(),
+                                    ),
+                                );
+                                object.insert(
+                                    "model".to_string(),
+                                    serde_json::Value::String(metadata.model.clone()),
+                                );
+                            }
+                            line = msg.to_string();
                         }
-                        line = msg.to_string();
+                    }
+
+                    if msg.get("type").and_then(|v| v.as_str()) == Some("result") {
+                        let is_success =
+                            msg.get("subtype").and_then(|v| v.as_str()) == Some("success");
+                        if let Ok(mut guard) = result_success_stdout.lock() {
+                            *guard = Some(is_success);
+                        }
                     }
                 }
 
-                if msg.get("type").and_then(|v| v.as_str()) == Some("result") {
-                    let is_success = msg.get("subtype").and_then(|v| v.as_str()) == Some("success");
-                    if let Ok(mut guard) = result_success_stdout.lock() {
-                        *guard = Some(is_success);
-                    }
-                }
+                let _ = win_stdout.emit(
+                    "claude-output",
+                    ClaudeOutputEvent {
+                        tab_id: tab_id_stdout.clone(),
+                        data: line,
+                    },
+                );
             }
-
-            let _ = win_stdout.emit(
-                "claude-output",
-                ClaudeOutputEvent {
-                    tab_id: tab_id_stdout.clone(),
-                    data: line,
-                },
-            );
         }
         eprintln!(
             "[claude-stdout] [{}] stream ended after {} lines ({:.1}s)",

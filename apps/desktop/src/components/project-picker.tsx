@@ -56,7 +56,11 @@ import {
 } from "@/components/ui/dialog";
 import { ProjectWizard, type CreationMode } from "./project-wizard";
 import { ClaudeSetup } from "./claude-setup";
-import { AppearanceSettings, LatexSettings } from "@/components/settings-form";
+import {
+  AgentSettings,
+  AppearanceSettings,
+  LatexSettings,
+} from "@/components/settings-form";
 import { cn } from "@/lib/utils";
 
 interface DefaultProject {
@@ -437,12 +441,13 @@ export function ProjectPicker() {
                     <LatexSettings />
                   </SettingsPanel>
                 ) : settingsDetailSection === "provider" ? (
-                  <SettingsPanel
-                    title="Provider"
-                    icon={KeyRoundIcon}
-                    contentClassName="p-0"
-                  >
-                    <ClaudeSetup variant="embedded" />
+                  <SettingsPanel title="Provider" icon={KeyRoundIcon}>
+                    <div className="space-y-6">
+                      <AgentSettings />
+                      <div className="-mx-4 border-border border-t">
+                        <ClaudeSetup variant="embedded" />
+                      </div>
+                    </div>
                   </SettingsPanel>
                 ) : (
                   <SettingsPanel

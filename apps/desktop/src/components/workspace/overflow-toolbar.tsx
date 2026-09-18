@@ -34,6 +34,7 @@ export function OverflowToolbar({
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const itemKey = items.map((item) => item.id).join("|");
 
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -57,9 +58,13 @@ export function OverflowToolbar({
     const observer = new ResizeObserver(update);
     observer.observe(host);
     return () => observer.disconnect();
-  }, []);
+  }, [itemKey]);
 
   const hidden = new Set(hiddenIds);
+  const stickyItems = items.filter((item) => item.sticky);
+  const visibleFlexible = items.filter(
+    (item) => !item.sticky && !hidden.has(item.id),
+  );
   const overflowItems = items.filter(
     (item) => hidden.has(item.id) && item.label && item.onSelect,
   );
@@ -83,14 +88,19 @@ export function OverflowToolbar({
           </div>
         ))}
       </div>
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-        {items.map((item) =>
-          hidden.has(item.id) ? null : (
-            <div key={item.id} className="shrink-0">
-              {item.node}
-            </div>
-          ),
-        )}
+      <div className="flex shrink-0 items-center gap-1">
+        {stickyItems.map((item) => (
+          <div key={item.id} className="shrink-0">
+            {item.node}
+          </div>
+        ))}
+      </div>
+      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
+        {visibleFlexible.map((item) => (
+          <div key={item.id} className="shrink-0">
+            {item.node}
+          </div>
+        ))}
         {overflowItems.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

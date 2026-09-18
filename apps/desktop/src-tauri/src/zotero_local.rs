@@ -69,7 +69,9 @@ fn default_data_dir() -> Option<PathBuf> {
         home.join("Documents").join("Zotero"),
         zotero_profile_data_dir(&home).unwrap_or_default(),
     ];
-    candidates.into_iter().find(|p| p.join("zotero.sqlite").is_file())
+    candidates
+        .into_iter()
+        .find(|p| p.join("zotero.sqlite").is_file())
 }
 
 fn zotero_profile_data_dir(home: &Path) -> Option<PathBuf> {
@@ -190,7 +192,9 @@ pub fn zotero_local_status() -> ZoteroLocalStatus {
         None => ZoteroLocalStatus {
             found: false,
             data_dir: None,
-            error: Some("No local Zotero database found. Open Zotero once, or pick the data folder.".into()),
+            error: Some(
+                "No local Zotero database found. Open Zotero once, or pick the data folder.".into(),
+            ),
         },
     }
 }
@@ -202,8 +206,7 @@ pub fn zotero_local_open(
 ) -> Result<ZoteroLocalStatus, String> {
     let dir = match data_dir {
         Some(s) => PathBuf::from(s),
-        None => default_data_dir()
-            .ok_or_else(|| "No local Zotero database found.".to_string())?,
+        None => default_data_dir().ok_or_else(|| "No local Zotero database found.".to_string())?,
     };
     let db_path = copy_sqlite(&dir)?;
     // Probe the copy.
@@ -277,9 +280,9 @@ pub fn zotero_local_tree(
             excl = excluded_type_clause(),
             alive = is_deleted_clause(),
         )) {
-            if let Ok(count_rows) = count_stmt.query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-            }) {
+            if let Ok(count_rows) =
+                count_stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+            {
                 for row in count_rows.flatten() {
                     counts.insert(row.0, row.1);
                 }

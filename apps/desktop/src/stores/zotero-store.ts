@@ -103,7 +103,19 @@ async function writeBibToProject(
   if (!docStore.projectRoot) {
     throw new Error("Open a project before importing citations.");
   }
-  const configured = useSettingsStore.getState().citationFile.trim();
+  const settings = useSettingsStore.getState();
+  const docs =
+    settings.compileDocumentsByProject[docStore.projectRoot ?? ""] ?? [];
+  const paired = docs.find(
+    (doc) =>
+      doc.mainFile === docStore.activeFileId ||
+      doc.mainFile ===
+        docStore.files.find((file) => file.id === docStore.activeFileId)
+          ?.relativePath,
+  );
+  const configured = (
+    paired ? paired.citationFile : settings.citationFile
+  ).trim();
   const targetName = configured || bibFileName;
   if (!isCitationFileName(targetName)) {
     throw new Error(

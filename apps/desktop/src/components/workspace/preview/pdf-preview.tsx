@@ -13,7 +13,6 @@ import {
   CrosshairIcon,
   ChevronUpIcon,
   ChevronDownIcon,
-  MoreHorizontalIcon,
   PictureInPicture2Icon,
 } from "lucide-react";
 import { writeFile, mkdir, exists } from "@tauri-apps/plugin-fs";
@@ -24,6 +23,7 @@ import {
   getCurrentPdfBytes,
   getCurrentPdfRootId,
   hasPdfData,
+  listPdfRootIds,
 } from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { useClaudeChatStore } from "@/stores/claude-chat-store";
@@ -43,15 +43,14 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { HistoryPanel } from "@/components/workspace/history-panel";
 import {
+  OverflowToolbar,
+  type OverflowToolbarItem,
+} from "@/components/workspace/overflow-toolbar";
+import {
   compileLatex,
+  compileIndependentRoots,
   synctexEdit,
   resolveCompileTarget,
   formatCompileError,
@@ -69,6 +68,7 @@ import {
 } from "./pdf-viewer";
 import { resolveTexRoot } from "@/stores/document-store";
 import { createLogger } from "@/lib/debug/logger";
+import { cn } from "@/lib/utils";
 
 const log = createLogger("pdf-preview");
 
@@ -108,6 +108,7 @@ export function PdfPreview() {
   const isCompiling = useDocumentStore((s) => s.isCompiling);
   const isSaving = useDocumentStore((s) => s.isSaving);
   const setPdfData = useDocumentStore((s) => s.setPdfData);
+  const setPreviewRoot = useDocumentStore((s) => s.setPreviewRoot);
   const setCompileError = useDocumentStore((s) => s.setCompileError);
   const setIsCompiling = useDocumentStore((s) => s.setIsCompiling);
   const content = useDocumentStore((s) => s.content);
@@ -146,6 +147,11 @@ export function PdfPreview() {
 
   // Derive pdfData from external cache, re-read whenever pdfRevision bumps
   const pdfData = useMemo(() => getCurrentPdfBytes(), [pdfRevision]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pdfRoots = useMemo(() => {
+    return listPdfRootIds()
+      .map((id) => files.find((file) => file.id === id))
+      .filter((file): file is NonNullable<typeof file> => !!file);
+  }, [files, pdfRevision]);
 
   // Keep-alive: track which root files have PdfViewer instances alive (LRU order)
   const currentRootFileId =
@@ -209,7 +215,13 @@ export function PdfPreview() {
   const handleSynctexClick = useCallback(
     async (page: number, x: number, y: number) => {
       if (!projectRoot) return;
-      const result = await synctexEdit(projectRoot, page, x, y);
+      const result = await synctexEdit(
+        projectRoot,
+        page,
+        x,
+        y,
+        currentRootFileId,
+      );
       if (!result) return;
 
       const normalize = (p: string) =>
@@ -246,7 +258,13 @@ export function PdfPreview() {
         requestJumpToPosition(offset);
       }
     },
-    [projectRoot, files, setActiveFile, requestJumpToPosition],
+    [
+      projectRoot,
+      files,
+      setActiveFile,
+      requestJumpToPosition,
+      currentRootFileId,
+    ],
   );
 
   // Resolved source location from synctex
@@ -270,6 +288,7 @@ export function PdfPreview() {
       pdfSelection.pageNumber,
       pdfSelection.pdfX,
       pdfSelection.pdfY,
+      currentRootFileId,
     )
       .then((result) => {
         if (cancelled || !result) return;
@@ -279,7 +298,7 @@ export function PdfPreview() {
     return () => {
       cancelled = true;
     };
-  }, [pdfSelection, projectRoot]);
+  }, [pdfSelection, projectRoot, currentRootFileId]);
 
   const pdfContextLabel = resolvedSource
     ? `~@${resolvedSource.file}:${resolvedSource.line}`
@@ -424,10 +443,21 @@ export function PdfPreview() {
     hasInitialCompile.current = true;
 
     const compile = async () => {
-      setIsCompiling(true);
       try {
+        const {
+          files: allFiles,
+          activeFileId,
+          projectRoot: root,
+        } = useDocumentStore.getState();
+        const configured = root
+          ? useSettingsStore.getState().compileDocumentsByProject[root]
+          : undefined;
+        if (configured && configured.length > 0) {
+          await compileIndependentRoots(configured.map((doc) => doc.mainFile));
+          return;
+        }
+        setIsCompiling(true);
         await saveAllFiles();
-        const { files: allFiles, activeFileId } = useDocumentStore.getState();
         const resolved = resolveCompileTarget(activeFileId, allFiles);
         if (!resolved) {
           setCompileError(
@@ -821,175 +851,225 @@ export function PdfPreview() {
     );
   };
 
-  return (
-    <div
-      ref={previewContainerRef}
-      className="@container/pv relative flex h-full min-w-0 flex-col overflow-hidden bg-muted/50"
-    >
-      <div className="@container/pv flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] min-w-0 shrink-0 items-center overflow-hidden border-border border-b bg-background px-1.5">
-        <div className="flex min-w-0 shrink items-center gap-1 overflow-hidden">
-          <Select
-            value={compilerBackend}
-            onValueChange={(v) =>
-              setCompilerBackend(v as "tectonic" | "texlive" | "latexmk")
-            }
-          >
-            <SelectTrigger
-              size="sm"
-              className="h-7! @[44rem]/pv:w-[8.5rem] w-[6.75rem] text-xs"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tectonic">Tectonic</SelectItem>
-              <SelectItem value="texlive">TeXLive</SelectItem>
-              <SelectItem value="latexmk">latexmk</SelectItem>
-            </SelectContent>
-          </Select>
-          {compilerBackend !== "tectonic" && (
-            <Select
-              value={defaultEngine}
-              onValueChange={(v) =>
-                setDefaultEngine(
-                  v as "auto" | "pdflatex" | "xelatex" | "lualatex",
-                )
-              }
-            >
-              <SelectTrigger
-                size="sm"
-                className="h-7! @[44rem]/pv:w-[8.5rem] w-[7.25rem] text-xs"
+  const previewToolbarItems: OverflowToolbarItem[] = [
+    {
+      id: "compiler",
+      label: "Compiler",
+      sticky: true,
+      node: (
+        <Select
+          value={compilerBackend}
+          onValueChange={(v) =>
+            setCompilerBackend(v as "tectonic" | "texlive" | "latexmk")
+          }
+        >
+          <SelectTrigger size="sm" className="h-7! w-[7rem] shrink-0 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tectonic">Tectonic</SelectItem>
+            <SelectItem value="texlive">TeXLive</SelectItem>
+            <SelectItem value="latexmk">latexmk</SelectItem>
+          </SelectContent>
+        </Select>
+      ),
+    },
+    ...(compilerBackend === "tectonic"
+      ? []
+      : [
+          {
+            id: "engine",
+            label: "Engine",
+            sticky: true,
+            node: (
+              <Select
+                value={defaultEngine}
+                onValueChange={(v) =>
+                  setDefaultEngine(
+                    v as "auto" | "pdflatex" | "xelatex" | "lualatex",
+                  )
+                }
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="pdflatex">pdfLaTeX</SelectItem>
-                <SelectItem value="lualatex">LuaLaTeX</SelectItem>
-                <SelectItem value="xelatex">XeLaTeX</SelectItem>
-                <SelectItem value="auto">auto</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-          {isSaving && (
-            <div className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1">
-              <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />
-              <span className="@[38rem]/pv:inline hidden font-medium text-muted-foreground text-xs">
-                Saving...
-              </span>
-            </div>
-          )}
-          {!isSaving && isCompiling && (
-            <div className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1">
-              <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />
-              <span className="@[38rem]/pv:inline hidden font-medium text-muted-foreground text-xs">
-                Compiling...
-              </span>
-            </div>
-          )}
-          {!isSaving && !isCompiling && !compileError && isTexActive && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 @[42rem]/pv:px-2.5 px-2 text-xs"
-              onClick={() => handleCompile(true)}
-              title={pdfData ? "Recompile" : "Compile"}
-            >
-              <RefreshCwIcon className="size-3.5" />
-              <span className="@[42rem]/pv:inline hidden">
-                {pdfData ? "Recompile" : "Compile"}
-              </span>
-            </Button>
-          )}
-          {!isSaving && !isCompiling && compileError && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 px-2.5 text-destructive text-xs hover:text-destructive"
-              onClick={() => handleCompile(true)}
-              disabled={!isTexActive}
-              title="Retry compile"
-            >
-              <RefreshCwIcon className="size-3.5" />
-              <span className="@[42rem]/pv:inline hidden">Retry</span>
-            </Button>
-          )}
-        </div>
-        <div data-tauri-drag-region className="min-w-2 flex-1 self-stretch" />
-        <div className="ml-auto flex min-w-0 shrink items-center justify-end gap-0.5 overflow-hidden">
-          {pdfData && (
-            <>
+                <SelectTrigger
+                  size="sm"
+                  className="h-7! w-[7.5rem] shrink-0 text-xs"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pdflatex">pdfLaTeX</SelectItem>
+                  <SelectItem value="lualatex">LuaLaTeX</SelectItem>
+                  <SelectItem value="xelatex">XeLaTeX</SelectItem>
+                  <SelectItem value="auto">auto</SelectItem>
+                </SelectContent>
+              </Select>
+            ),
+          } satisfies OverflowToolbarItem,
+        ]),
+    ...(isSaving || isCompiling
+      ? [
+          {
+            id: "status",
+            label: isSaving ? "Saving" : "Compiling",
+            node: (
+              <div className="flex size-7 items-center justify-center">
+                <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />
+              </div>
+            ),
+          } satisfies OverflowToolbarItem,
+        ]
+      : [
+          {
+            id: "refresh",
+            label: compileError ? "Retry" : pdfData ? "Recompile" : "Compile",
+            icon: <RefreshCwIcon className="size-4" />,
+            onSelect: () => {
+              if (isTexActive) void handleCompile(true);
+            },
+            node: (
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 shrink-0"
+                className={cn(
+                  "size-7",
+                  compileError && "text-destructive hover:text-destructive",
+                )}
+                onClick={() => handleCompile(true)}
+                disabled={!isTexActive}
+                title={
+                  compileError
+                    ? "Retry compile"
+                    : pdfData
+                      ? "Recompile"
+                      : "Compile"
+                }
+              >
+                <RefreshCwIcon className="size-3.5" />
+              </Button>
+            ),
+          } satisfies OverflowToolbarItem,
+        ]),
+    ...(pdfData
+      ? ([
+          {
+            id: "zoom-out",
+            label: "Zoom out",
+            icon: <MinusIcon className="size-4" />,
+            onSelect: zoomOut,
+            node: (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={zoomOut}
+                disabled={scale <= 0.25}
+                title="Zoom out"
+              >
+                <MinusIcon className="size-3.5" />
+              </Button>
+            ),
+          },
+          {
+            id: "zoom-in",
+            label: "Zoom in",
+            icon: <PlusIcon className="size-4" />,
+            onSelect: zoomIn,
+            node: (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={zoomIn}
+                disabled={scale >= 4}
+                title="Zoom in"
+              >
+                <PlusIcon className="size-3.5" />
+              </Button>
+            ),
+          },
+          {
+            id: "page-up",
+            label: "Page up",
+            icon: <ChevronUpIcon className="size-4" />,
+            onSelect: () => goToPage(currentPage - 1),
+            node: (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
                 onClick={() => goToPage(currentPage - 1)}
                 disabled={currentPage <= 1}
                 title="Page Up"
               >
                 <ChevronUpIcon className="size-3.5" />
               </Button>
-              {isEditingPage ? (
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  className="h-6 w-7 shrink-0 rounded border border-border bg-background text-center text-foreground text-xs outline-none focus:ring-1 focus:ring-ring"
-                  value={pageInputValue}
-                  onChange={(e) => setPageInputValue(e.target.value)}
-                  onBlur={handlePageInputCommit}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handlePageInputCommit();
-                    if (e.key === "Escape") {
-                      setIsEditingPage(false);
-                      setPageInputValue(String(currentPage));
-                    }
-                  }}
-                />
-              ) : (
-                <button
-                  className="flex h-6 w-7 shrink-0 items-center justify-center rounded text-muted-foreground text-xs tabular-nums hover:bg-muted"
-                  onClick={() => {
-                    setIsEditingPage(true);
-                    setPageInputValue(String(currentPage));
-                  }}
-                  title="Click to jump to page"
-                >
-                  {currentPage}
-                </button>
-              )}
-              <span className="shrink-0 text-muted-foreground/80 text-xs tabular-nums">
-                /
-              </span>
-              <span className="flex h-6 w-7 shrink-0 items-center justify-center text-muted-foreground text-xs tabular-nums">
-                {numPages}
-              </span>
+            ),
+          },
+          {
+            id: "page-down",
+            label: "Page down",
+            icon: <ChevronDownIcon className="size-4" />,
+            onSelect: () => goToPage(currentPage + 1),
+            node: (
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 shrink-0"
+                className="size-7"
                 onClick={() => goToPage(currentPage + 1)}
                 disabled={currentPage >= numPages}
                 title="Page Down"
               >
                 <ChevronDownIcon className="size-3.5" />
               </Button>
-              <div className="mx-1 @[34rem]/pv:block hidden h-4 w-px bg-border" />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="@[22rem]/pv:inline-flex hidden size-7 shrink-0"
-                onClick={zoomOut}
-                disabled={scale <= 0.25}
-              >
-                <MinusIcon className="size-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="@[22rem]/pv:inline-flex hidden size-7 shrink-0"
-                onClick={zoomIn}
-                disabled={scale >= 4}
-              >
-                <PlusIcon className="size-3.5" />
-              </Button>
+            ),
+          },
+          {
+            id: "page-label",
+            label: "Page",
+            node: (
+              <div className="flex items-center gap-0.5">
+                {isEditingPage ? (
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className="h-6 w-7 shrink-0 rounded border border-border bg-background text-center text-foreground text-xs outline-none focus:ring-1 focus:ring-ring"
+                    value={pageInputValue}
+                    onChange={(e) => setPageInputValue(e.target.value)}
+                    onBlur={handlePageInputCommit}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handlePageInputCommit();
+                      if (e.key === "Escape") {
+                        setIsEditingPage(false);
+                        setPageInputValue(String(currentPage));
+                      }
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="flex h-6 w-7 shrink-0 items-center justify-center rounded text-muted-foreground text-xs tabular-nums hover:bg-muted"
+                    onClick={() => {
+                      setIsEditingPage(true);
+                      setPageInputValue(String(currentPage));
+                    }}
+                    title="Click to jump to page"
+                  >
+                    {currentPage}
+                  </button>
+                )}
+                <span className="shrink-0 text-muted-foreground/80 text-xs tabular-nums">
+                  /
+                </span>
+                <span className="flex h-6 w-7 shrink-0 items-center justify-center text-muted-foreground text-xs tabular-nums">
+                  {numPages}
+                </span>
+              </div>
+            ),
+          },
+          {
+            id: "zoom-select",
+            label: "Zoom",
+            node: (
               <Select
                 value={fitMode ?? scale.toString()}
                 onValueChange={(v) => {
@@ -1001,15 +1081,12 @@ export function PdfPreview() {
                   }
                 }}
               >
-                <SelectTrigger
-                  size="sm"
-                  className="h-7! @[48rem]/pv:w-[7.5rem] w-[5rem] text-xs"
-                >
+                <SelectTrigger size="sm" className="h-7! w-[4.75rem] text-xs">
                   <SelectValue>
                     {fitMode === "fit-width"
-                      ? "Fit width"
+                      ? "Width"
                       : fitMode === "fit-height"
-                        ? "Fit height"
+                        ? "Height"
                         : `${Math.round(scale * 100)}%`}
                   </SelectValue>
                 </SelectTrigger>
@@ -1024,86 +1101,110 @@ export function PdfPreview() {
                   ))}
                 </SelectContent>
               </Select>
-              <div className="mx-1 @[34rem]/pv:block hidden h-4 w-px bg-border" />
-              <div className="@[30rem]/pv:flex hidden items-center gap-0.5">
-                <Button
-                  variant={captureMode ? "default" : "secondary"}
-                  size="sm"
-                  className={`h-7 gap-1.5 @[56rem]/pv:px-2.5 px-2 text-xs ${
-                    captureMode
-                      ? "ring-2 ring-primary/30"
-                      : "bg-foreground text-background hover:bg-foreground/90"
-                  }`}
-                  onClick={() => setCaptureMode(!captureMode)}
-                  title={`Capture & Ask (${navigator.userAgent.includes("Mac") ? "Cmd+X" : "Ctrl+X"})`}
-                >
-                  <CrosshairIcon className="size-3.5 shrink-0" />
-                  <span className="@[56rem]/pv:inline hidden">
-                    Capture & Ask
-                  </span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  onClick={handleExport}
-                  title="Export PDF"
-                >
-                  <DownloadIcon className="size-3.5" />
-                </Button>
-              </div>
-            </>
-          )}
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="size-6 shrink-0 shadow-none outline-none ring-0 hover:bg-muted/70 focus-visible:ring-0"
-            title={previewFloating ? "Dock preview" : "Float preview"}
-            onClick={() => setPreviewFloating(!previewFloating)}
-          >
-            <PictureInPicture2Icon className="size-3.5" />
-          </Button>
-          <Popover>
-            <PopoverTrigger asChild>
+            ),
+          },
+          {
+            id: "capture",
+            label: "Capture & Ask",
+            icon: <CrosshairIcon className="size-4" />,
+            onSelect: () => setCaptureMode(!captureMode),
+            node: (
+              <Button
+                variant={captureMode ? "default" : "ghost"}
+                size="icon"
+                className="size-7"
+                onClick={() => setCaptureMode(!captureMode)}
+                title={`Capture & Ask (${navigator.userAgent.includes("Mac") ? "Cmd+X" : "Ctrl+X"})`}
+              >
+                <CrosshairIcon className="size-3.5" />
+              </Button>
+            ),
+          },
+          {
+            id: "export",
+            label: "Export PDF",
+            icon: <DownloadIcon className="size-4" />,
+            onSelect: () => {
+              void handleExport();
+            },
+            node: (
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 shrink-0"
-                title="History"
+                className="size-7"
+                onClick={() => void handleExport()}
+                title="Export PDF"
               >
-                <HistoryIcon className="size-3.5" />
+                <DownloadIcon className="size-3.5" />
               </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-96">
-              <HistoryPanel maxHeight="max-h-[32rem]" />
-            </PopoverContent>
-          </Popover>
-          {pdfData && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            ),
+          },
+        ] satisfies OverflowToolbarItem[])
+      : []),
+  ];
+
+  return (
+    <div
+      ref={previewContainerRef}
+      className="relative flex h-full min-w-0 flex-col overflow-hidden bg-muted/50"
+    >
+      <OverflowToolbar
+        className="h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] border-border border-b bg-background px-1.5"
+        items={previewToolbarItems}
+        trailing={
+          <>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="size-6 shrink-0 shadow-none outline-none ring-0 hover:bg-muted/70 focus-visible:ring-0"
+              title={previewFloating ? "Dock preview" : "Float preview"}
+              onClick={() => setPreviewFloating(!previewFloating)}
+            >
+              <PictureInPicture2Icon className="size-3.5" />
+            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon-xs"
-                  className="@[30rem]/pv:hidden size-6 shrink-0 shadow-none outline-none ring-0 hover:bg-muted/70 focus-visible:ring-0 data-[state=open]:bg-muted/70"
-                  aria-label="More"
+                  size="icon"
+                  className="size-7 shrink-0"
+                  title="History"
                 >
-                  <MoreHorizontalIcon className="size-3.5" />
+                  <HistoryIcon className="size-3.5" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={() => setCaptureMode(!captureMode)}>
-                  <CrosshairIcon className="mr-2 size-3.5" />
-                  Capture
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void handleExport()}>
-                  <DownloadIcon className="mr-2 size-3.5" />
-                  Export PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-96">
+                <HistoryPanel maxHeight="max-h-[32rem]" />
+              </PopoverContent>
+            </Popover>
+          </>
+        }
+      />
+      {pdfRoots.length > 0 && (
+        <div className="flex min-h-8 shrink-0 items-center overflow-x-auto border-border border-b bg-background">
+          {pdfRoots.map((file) => {
+            const active = file.id === currentRootFileId;
+            return (
+              <button
+                key={file.id}
+                type="button"
+                className={cn(
+                  "flex max-w-[10rem] items-center border-border border-r px-2.5 py-1.5 text-xs",
+                  active
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                )}
+                onClick={() => setPreviewRoot(file.id)}
+                title={file.relativePath}
+              >
+                <span className="truncate">
+                  {file.name.replace(/\.tex$/i, ".pdf")}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      </div>
+      )}
       {renderContent()}
       {/* PDF selection toolbar */}
       {pdfToolbarPosition && pdfSelection && (

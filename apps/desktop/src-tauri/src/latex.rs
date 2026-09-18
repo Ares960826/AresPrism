@@ -14,6 +14,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
+#[derive(Clone)]
 struct BuildInfo {
     work_dir: PathBuf,
     main_file_name: String,
@@ -182,8 +183,36 @@ fn parse_engine_pref(pref: Option<&str>) -> Option<TexEngine> {
     }
 }
 
-fn resolve_compile_engine(magic: Option<TexEngine>, preferred: Option<TexEngine>) -> TexEngine {
-    magic.or(preferred).unwrap_or(TexEngine::Latex)
+/// Infer engine from source when there is no `% !TEX program`.
+/// pdfTeX-only primitives (`\pdfglyphtounicode`, glyphtounicode) must not run on XeLaTeX.
+fn infer_tex_engine(content: &str) -> Option<TexEngine> {
+    let lower = content.to_ascii_lowercase();
+    if lower.contains("glyphtounicode")
+        || lower.contains("\\pdfgentounicode")
+        || lower.contains("\\pdfglyphtounicode")
+    {
+        return Some(TexEngine::Latex);
+    }
+    if lower.contains("{fontspec}")
+        || lower.contains("{xecjk}")
+        || lower.contains("\\setmainfont")
+        || lower.contains("\\setcjkmainsfont")
+        || lower.contains("\\setcjktmainfont")
+    {
+        return Some(TexEngine::XeLaTeX);
+    }
+    if lower.contains("{luacode}") || lower.contains("{luatextra}") {
+        return Some(TexEngine::LuaLaTeX);
+    }
+    None
+}
+
+fn resolve_compile_engine(
+    magic: Option<TexEngine>,
+    inferred: Option<TexEngine>,
+    preferred: Option<TexEngine>,
+) -> TexEngine {
+    magic.or(inferred).or(preferred).unwrap_or(TexEngine::Latex)
 }
 
 fn engine_bin_name(engine: TexEngine) -> &'static str {
@@ -385,7 +414,35 @@ fn sync_source_files(src: &Path, dst: &Path) -> std::io::Result<()> {
 /// Persistent build directory inside the project.
 /// Stored in `<project>/.prism/build/` — hidden from file tree (dot-prefix is filtered).
 fn persistent_build_dir(project_dir: &str) -> PathBuf {
-    PathBuf::from(project_dir).join(".prism").join("build")
+    PathBuf::from(project_dir.trim_end_matches(['/', '\\']))
+        .join(".prism")
+        .join("build")
+}
+
+fn jobname_from_main_file(main_file: &str) -> String {
+    let stem = Path::new(main_file)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("document");
+    let safe: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if safe.is_empty() {
+        "document".to_string()
+    } else {
+        safe
+    }
+}
+
+fn persistent_build_dir_for(project_dir: &str, main_file: &str) -> PathBuf {
+    persistent_build_dir(project_dir).join(jobname_from_main_file(main_file))
 }
 
 // --- Thread priority ---
@@ -547,11 +604,7 @@ fn run_texlive_pass(
     Ok(())
 }
 
-fn compile_with_latexmk(
-    work_dir: &Path,
-    main_file: &str,
-    engine: TexEngine,
-) -> Result<(), String> {
+fn compile_with_latexmk(work_dir: &Path, main_file: &str, engine: TexEngine) -> Result<(), String> {
     let latexmk = find_texlive_binary("latexmk")?;
     let engine_path = find_texlive_binary(engine_bin_name(engine))?;
     let env_path = texlive_env_path(&engine_path);
@@ -906,18 +959,19 @@ pub async fn compile_latex(
         .try_acquire_owned()
         .map_err(|_| "Server busy, too many concurrent compilations".to_string())?;
 
-    // Acquire per-project lock to prevent concurrent compilations on the same build dir.
+    // Lock per (project, main file) so independent documents can compile together.
+    let lock_key = format!("{}::{main_file}", project_dir);
     let project_lock = {
         let mut locks = state.project_locks.lock().await;
         locks
-            .entry(project_dir.clone())
+            .entry(lock_key)
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
             .clone()
     };
     let _project_guard = project_lock.lock().await;
 
     let t0 = std::time::Instant::now();
-    let compile_backend = parse_compile_backend(backend.as_deref(), use_texlive);
+    let mut compile_backend = parse_compile_backend(backend.as_deref(), use_texlive);
     let preferred_engine = parse_engine_pref(engine.as_deref());
 
     let main_file_name = Path::new(&main_file)
@@ -927,7 +981,7 @@ pub async fn compile_latex(
         .to_string();
 
     // Set up build directory (offload blocking I/O to avoid starving the async runtime)
-    let work_dir = persistent_build_dir(&project_dir);
+    let work_dir = persistent_build_dir_for(&project_dir, &main_file);
     let is_reuse = work_dir.exists();
 
     {
@@ -981,8 +1035,22 @@ pub async fn compile_latex(
     let main_tex_content = std::fs::read_to_string(&main_tex_path).unwrap_or_default();
     let engine = resolve_compile_engine(
         detect_tex_engine(&main_tex_content),
+        infer_tex_engine(&main_tex_content),
         preferred_engine,
     );
+    // Tectonic is XeTeX-based and cannot run pdfTeX primitives such as
+    // `\pdfglyphtounicode`. Fall back to TeX Live / latexmk for those files.
+    if compile_backend == CompileBackend::Tectonic && engine == TexEngine::Latex {
+        compile_backend = if find_texlive_binary("pdflatex").is_ok() {
+            CompileBackend::Texlive
+        } else {
+            CompileBackend::Latexmk
+        };
+        eprintln!(
+            "[latex] tectonic cannot run pdfTeX-only source; using {:?}",
+            compile_backend
+        );
+    }
     let engine_name_for_label = engine_bin_name(engine);
     let backend_label = match compile_backend {
         CompileBackend::Tectonic => "Tectonic".to_string(),
@@ -1004,12 +1072,7 @@ pub async fn compile_latex(
             let main_file_clone = main_file.clone();
             let result = tokio::task::spawn_blocking(move || {
                 lower_thread_priority();
-                compile_with_texlive(
-                    &work_dir_clone,
-                    &main_file_clone,
-                    engine,
-                    &main_tex_content,
-                )
+                compile_with_texlive(&work_dir_clone, &main_file_clone, engine, &main_tex_content)
             })
             .await
             .map_err(|e| format!("Compilation task panicked: {}", e))?;
@@ -1105,13 +1168,12 @@ pub async fn compile_latex(
     // Store build info
     {
         let mut builds = state.last_builds.lock().await;
-        builds.insert(
-            project_dir.clone(),
-            BuildInfo {
-                work_dir: work_dir.clone(),
-                main_file_name: main_file_name.clone(),
-            },
-        );
+        let info = BuildInfo {
+            work_dir: work_dir.clone(),
+            main_file_name: main_file_name.clone(),
+        };
+        builds.insert(project_dir.clone(), info.clone());
+        builds.insert(format!("{}::{main_file}", project_dir), info);
     }
 
     if pdf_path.exists() {
@@ -1150,10 +1212,16 @@ pub async fn synctex_edit(
     page: u32,
     x: f64,
     y: f64,
+    main_file: Option<String>,
 ) -> Result<SynctexResult, String> {
     let builds = state.last_builds.lock().await;
-    let build = builds
-        .get(&project_dir)
+    let keyed = main_file
+        .as_deref()
+        .map(|file| format!("{project_dir}::{file}"));
+    let build = keyed
+        .as_ref()
+        .and_then(|key| builds.get(key))
+        .or_else(|| builds.get(&project_dir))
         .ok_or("No build found for this project")?;
 
     let synctex_gz = build
@@ -1314,6 +1382,15 @@ mod tests {
     fn test_persistent_build_dir() {
         let dir = persistent_build_dir("/Users/dev/my-project");
         assert_eq!(dir, PathBuf::from("/Users/dev/my-project/.prism/build"));
+    }
+
+    #[test]
+    fn test_persistent_build_dir_for_isolates_jobname() {
+        let main = persistent_build_dir_for("/paper", "main.tex");
+        let supp = persistent_build_dir_for("/paper", "supplement.tex");
+        assert_eq!(main, PathBuf::from("/paper/.prism/build/main"));
+        assert_eq!(supp, PathBuf::from("/paper/.prism/build/supplement"));
+        assert_ne!(main, supp);
     }
 
     // --- parse_synctex_node ---
@@ -1602,16 +1679,12 @@ Postamble:
             .map(|p| p.to_string_lossy().to_string())
             .collect();
         assert!(rendered.contains(&"/Library/TeX/texbin/latexmk".to_string()));
-        assert!(
-            rendered
-                .iter()
-                .any(|p| p.contains("/usr/local/texlive/2026/") && p.ends_with("latexmk"))
-        );
-        assert!(
-            rendered
-                .iter()
-                .any(|p| p.contains("/usr/local/texlive/2024/") && p.ends_with("latexmk"))
-        );
+        assert!(rendered
+            .iter()
+            .any(|p| p.contains("/usr/local/texlive/2026/") && p.ends_with("latexmk")));
+        assert!(rendered
+            .iter()
+            .any(|p| p.contains("/usr/local/texlive/2024/") && p.ends_with("latexmk")));
     }
 
     #[test]
@@ -1652,14 +1725,47 @@ Postamble:
     #[test]
     fn test_resolve_compile_engine_magic_comment_wins() {
         assert_eq!(
-            resolve_compile_engine(Some(TexEngine::LuaLaTeX), Some(TexEngine::Latex)),
+            resolve_compile_engine(
+                Some(TexEngine::LuaLaTeX),
+                Some(TexEngine::Latex),
+                Some(TexEngine::XeLaTeX),
+            ),
             TexEngine::LuaLaTeX
         );
     }
 
     #[test]
     fn test_resolve_compile_engine_defaults_to_pdflatex() {
-        assert_eq!(resolve_compile_engine(None, None), TexEngine::Latex);
+        assert_eq!(resolve_compile_engine(None, None, None), TexEngine::Latex);
+    }
+
+    #[test]
+    fn test_infer_tex_engine_glyphtounicode_is_pdflatex() {
+        let content = "\\documentclass{article}\n\\input{glyphtounicode}\\pdfgentounicode=1\n";
+        assert_eq!(infer_tex_engine(content), Some(TexEngine::Latex));
+        assert_eq!(
+            resolve_compile_engine(None, infer_tex_engine(content), Some(TexEngine::XeLaTeX)),
+            TexEngine::Latex
+        );
+    }
+
+    #[test]
+    fn test_infer_tex_engine_fontspec_is_xelatex() {
+        let content = "\\documentclass{article}\n\\usepackage{fontspec}\n";
+        assert_eq!(infer_tex_engine(content), Some(TexEngine::XeLaTeX));
+    }
+
+    #[test]
+    fn test_magic_comment_wins_over_inference() {
+        let content = "% !TEX program = xelatex\n\\input{glyphtounicode}\n";
+        assert_eq!(
+            resolve_compile_engine(
+                detect_tex_engine(content),
+                infer_tex_engine(content),
+                Some(TexEngine::Latex),
+            ),
+            TexEngine::XeLaTeX
+        );
     }
 
     #[test]

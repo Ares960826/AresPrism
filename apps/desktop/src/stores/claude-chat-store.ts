@@ -3,6 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "./document-store";
 import { useHistoryStore } from "./history-store";
 import { useClaudeSetupStore } from "./claude-setup-store";
+import { useSettingsStore } from "./settings-store";
+import {
+  agentSessionKey,
+  isAgentKind,
+  isLocalCliAgentKey,
+} from "@/lib/agent-kind";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("claude");
@@ -596,9 +602,9 @@ interface ClaudeChatState {
   selectedProviderModels: Record<string, string>;
   setSelectedProviderModel: (credentialId: string, model: string) => void;
 
-  /** Effort level for Opus 4.6 adaptive reasoning */
-  effortLevel: "low" | "medium" | "high";
-  setEffortLevel: (level: "low" | "medium" | "high") => void;
+  /** Reasoning / thinking effort. Values depend on the selected CLI. */
+  effortLevel: string;
+  setEffortLevel: (level: string) => void;
 
   // Actions
   sendPrompt: (
@@ -763,6 +769,15 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
 
     const { selectedModel, effortLevel, selectedProviderModels } = state;
     const sessionId = activeTab.sessionId;
+    let agentKind = useSettingsStore.getState().agentKind ?? "claude";
+    if (options?.preserveTabProvider && activeTab.providerKey) {
+      if (isLocalCliAgentKey(activeTab.providerKey)) {
+        const fromTab = activeTab.providerKey.slice("agent:".length);
+        if (isAgentKind(fromTab)) agentKind = fromTab;
+      } else {
+        agentKind = "claude";
+      }
+    }
     const tabSelectedProviderCredentialId =
       selectedCredentialForProviderKey(activeTab.providerKey) ??
       state.selectedProviderCredentialId;
@@ -783,10 +798,17 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
       }
     }
 
+    if (agentKind !== "claude") {
+      providerCredentialId = null;
+    }
+
     const providerModelOverride = providerCredentialId
       ? selectedProviderModels[providerCredentialId] || null
       : null;
-    const requestProviderKey = providerSessionKey(providerCredentialId);
+    const requestProviderKey = agentSessionKey(
+      agentKind,
+      providerSessionKey(providerCredentialId),
+    );
     const previousProviderKey = activeTab?.sessionProviderKey ?? null;
     const providerChanged =
       !!sessionId &&
@@ -796,9 +818,14 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
       providerChanged &&
       requestProviderKey === CLAUDE_CODE_PROVIDER_ID &&
       previousProviderKey !== CLAUDE_CODE_PROVIDER_ID;
-    const resumeSessionId = switchingDirectProviderToClaudeCode
-      ? null
-      : (sessionId ?? null);
+    const switchingLocalCliAgent =
+      providerChanged &&
+      (isLocalCliAgentKey(requestProviderKey) ||
+        isLocalCliAgentKey(previousProviderKey));
+    const resumeSessionId =
+      switchingDirectProviderToClaudeCode || switchingLocalCliAgent
+        ? null
+        : (sessionId ?? null);
 
     const sendStart = performance.now();
     const streamingStartedAt = Date.now();
@@ -926,7 +953,17 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
     });
 
     try {
-      if (resumeSessionId) {
+      if (agentKind !== "claude") {
+        await invoke("execute_agent", {
+          projectPath,
+          prompt,
+          tabId: activeTabId,
+          agent: agentKind,
+          sessionId: resumeSessionId,
+          model: useSettingsStore.getState().agentModels[agentKind] ?? null,
+          effortLevel,
+        });
+      } else if (resumeSessionId) {
         // Resume existing session
         await invoke("resume_claude_code", {
           projectPath,

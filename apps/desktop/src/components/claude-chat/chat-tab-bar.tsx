@@ -1,10 +1,10 @@
-import { useCallback, useRef, useEffect } from "react";
+import { type ReactNode, useCallback, useRef, useEffect } from "react";
 import { PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClaudeChatStore, type TabState } from "@/stores/claude-chat-store";
 import { SessionSelector } from "./session-selector";
 
-export function ChatTabBar() {
+export function ChatTabBar({ extraActions }: { extraActions?: ReactNode }) {
   const tabs = useClaudeChatStore((s) => s.tabs);
   const activeTabId = useClaudeChatStore((s) => s.activeTabId);
   const setActiveTab = useClaudeChatStore((s) => s.setActiveTab);
@@ -95,7 +95,7 @@ export function ChatTabBar() {
           />
         ))}
       </div>
-      <div className="flex shrink-0 items-center gap-0.5 pr-3">
+      <div className="flex shrink-0 items-center gap-0.5 pr-2">
         <button
           type="button"
           onClick={handleCreate}
@@ -105,6 +105,7 @@ export function ChatTabBar() {
           <PlusIcon className="size-3.5" />
         </button>
         <SessionSelector />
+        {extraActions}
       </div>
     </div>
   );

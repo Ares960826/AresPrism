@@ -60,6 +60,7 @@ import {
 } from "@/lib/latex-compiler";
 import { useSettingsStore } from "@/stores/settings-store";
 import { EditorToolbar } from "./editor-toolbar";
+import { EditorTabBar } from "./editor-tab-bar";
 import { SelectionToolbar, type ToolbarAction } from "./selection-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -709,7 +710,16 @@ export function LatexEditor() {
             touchAction: "pan-y",
             fontFamily: "var(--editor-font-family, ui-monospace, monospace)",
           },
-          ".cm-gutters": { paddingRight: "4px" },
+          ".cm-gutters": {
+            paddingRight: "4px",
+            backgroundColor: "var(--background)",
+            color: "var(--muted-foreground)",
+            borderRight: "1px solid var(--border)",
+          },
+          ".cm-activeLineGutter": {
+            backgroundColor: "var(--muted)",
+            color: "var(--foreground)",
+          },
           ".cm-lineNumbers .cm-gutterElement": {
             paddingLeft: "8px",
             paddingRight: "4px",
@@ -1149,6 +1159,7 @@ export function LatexEditor() {
         cropMode={isImage ? cropMode : undefined}
         onCropToggle={isImage ? () => setCropMode((v) => !v) : undefined}
       />
+      <EditorTabBar />
       {/* Text-editor-only panels */}
       {!isPdf && !isImage && !isLargeFileNotLoaded && isSearchOpen && (
         <SearchPanel

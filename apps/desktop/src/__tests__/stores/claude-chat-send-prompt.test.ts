@@ -27,6 +27,7 @@ import {
   CLAUDE_CODE_PROVIDER_ID,
   useClaudeChatStore,
 } from "@/stores/claude-chat-store";
+import { useSettingsStore } from "@/stores/settings-store";
 
 function resetClaudeChatStore() {
   useClaudeChatStore.setState({
@@ -104,6 +105,7 @@ describe("useClaudeChatStore.sendPrompt context assembly", () => {
     vi.clearAllMocks();
     resetClaudeChatStore();
     setMockDocumentState();
+    useSettingsStore.setState({ agentKind: "claude" });
   });
 
   it("uses a plain file label and full file content for whole-file mentions", async () => {
@@ -293,6 +295,55 @@ describe("useClaudeChatStore.sendPrompt context assembly", () => {
       }),
     );
   });
+
+  it("routes Codex through execute_agent and does not call Claude Code", async () => {
+    useSettingsStore.setState({ agentKind: "codex" });
+
+    await useClaudeChatStore.getState().sendPrompt("Fix the abstract");
+
+    expect(invoke).toHaveBeenCalledWith(
+      "execute_agent",
+      expect.objectContaining({
+        projectPath: "/project",
+        tabId: "tab-default",
+        agent: "codex",
+        sessionId: null,
+        prompt: expect.stringContaining("Fix the abstract"),
+      }),
+    );
+    expect(
+      vi
+        .mocked(invoke)
+        .mock.calls.some(([command]) => command === "execute_claude_code"),
+    ).toBe(false);
+  });
+
+  it("resumes a Codex thread when the tab already belongs to Codex", async () => {
+    useSettingsStore.setState({ agentKind: "codex" });
+    useClaudeChatStore.setState((state) => ({
+      sessionId: "thread-123",
+      tabs: state.tabs.map((tab) =>
+        tab.id === "tab-default"
+          ? {
+              ...tab,
+              sessionId: "thread-123",
+              providerKey: "agent:codex",
+              sessionProviderKey: "agent:codex",
+            }
+          : tab,
+      ),
+    }));
+
+    await useClaudeChatStore.getState().sendPrompt("Keep going");
+
+    expect(invoke).toHaveBeenCalledWith(
+      "execute_agent",
+      expect.objectContaining({
+        agent: "codex",
+        sessionId: "thread-123",
+      }),
+    );
+  });
 });
 
 describe("useClaudeChatStore.resumeSession", () => {
@@ -300,6 +351,7 @@ describe("useClaudeChatStore.resumeSession", () => {
     vi.clearAllMocks();
     resetClaudeChatStore();
     setMockDocumentState();
+    useSettingsStore.setState({ agentKind: "claude" });
   });
 
   it("restores token totals from loaded session history", async () => {

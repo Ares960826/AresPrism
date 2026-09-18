@@ -414,7 +414,8 @@ export function Sidebar({
   const appVersion = useAppVersion();
   const files = useDocumentStore((s) => s.files);
   const activeFileId = useDocumentStore((s) => s.activeFileId);
-  const setActiveFile = useDocumentStore((s) => s.setActiveFile);
+  const replaceOpenFile = useDocumentStore((s) => s.replaceOpenFile);
+  const openFileInTab = useDocumentStore((s) => s.openFileInTab);
   const deleteFile = useDocumentStore((s) => s.deleteFile);
   const deleteFolder = useDocumentStore((s) => s.deleteFolder);
   const renameFile = useDocumentStore((s) => s.renameFile);
@@ -1142,7 +1143,7 @@ export function Sidebar({
 
   const collapsedRail = (
     <div className="flex h-full w-full min-w-0 flex-col items-center bg-sidebar text-sidebar-foreground">
-      <div className="flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] w-full items-center justify-center border-sidebar-border border-b">
+      <div className="flex h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] w-full items-end justify-center border-sidebar-border border-b pb-1.5">
         <LayoutPaneSwitcher
           controls={layoutControls}
           collapsed={collapsed}
@@ -1242,8 +1243,8 @@ export function Sidebar({
         aria-hidden={collapsed}
       >
         <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-          {/* Header — padded top for macOS overlay titlebar */}
-          <div className="grid h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-2 border-sidebar-border border-b px-3">
+          {/* Same horizontal inset as before; sit slightly below the traffic lights */}
+          <div className="grid h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] grid-cols-[2rem_minmax(0,1fr)_2rem] items-end gap-2 border-sidebar-border border-b px-3 pb-1">
             <div className="flex items-center justify-start">
               <Button
                 variant="ghost"
@@ -1368,7 +1369,12 @@ export function Sidebar({
                             onSelectFile={(id: string) => {
                               const parent = parentFolderOfPath(id);
                               setPasteTargetFolder(parent);
-                              setActiveFile(id);
+                              replaceOpenFile(id);
+                            }}
+                            onOpenInNewTab={(id: string) => {
+                              const parent = parentFolderOfPath(id);
+                              setPasteTargetFolder(parent);
+                              openFileInTab(id);
                             }}
                             onItemClick={handleTreeItemClick}
                             onItemContextMenu={handleTreeItemContextMenu}
@@ -1831,6 +1837,7 @@ interface FileTreeNodeProps {
   expandedFolders: Set<string>;
   onToggleFolder: (path: string) => void;
   onSelectFile: (id: string) => void;
+  onOpenInNewTab: (id: string) => void;
   onItemClick: (
     item: FileTreeSelectionItem,
     event: React.MouseEvent,
@@ -1855,6 +1862,7 @@ function FileTreeNode({
   expandedFolders,
   onToggleFolder,
   onSelectFile,
+  onOpenInNewTab,
   onItemClick,
   onItemContextMenu,
   onNewFile,
@@ -1954,6 +1962,7 @@ function FileTreeNode({
               expandedFolders={expandedFolders}
               onToggleFolder={onToggleFolder}
               onSelectFile={onSelectFile}
+              onOpenInNewTab={onOpenInNewTab}
               onItemClick={onItemClick}
               onItemContextMenu={onItemContextMenu}
               onNewFile={onNewFile}
@@ -2014,6 +2023,13 @@ function FileTreeNode({
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <ContextMenuItem
+            onClick={() => onOpenInNewTab(file.id)}
+            disabled={batchOperation}
+          >
+            <FileTextIcon className="mr-2 size-4" />
+            Open in New Tab
+          </ContextMenuItem>
           <ContextMenuItem
             onClick={() => onRename(file.id, file.name)}
             disabled={batchOperation}

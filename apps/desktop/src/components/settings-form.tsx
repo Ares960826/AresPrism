@@ -1,5 +1,14 @@
 import { useTheme } from "next-themes";
-import { LeafIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  LeafIcon,
+  MonitorIcon,
+  MoonIcon,
+  PlusIcon,
+  SunIcon,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -11,8 +20,32 @@ import {
 import { useSettingsStore } from "@/stores/settings-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { isCitationFileName } from "@/lib/citation-file";
+import {
+  inferCompileDocuments,
+  type CompileDocument,
+} from "@/lib/compile-documents";
 import { EDITOR_FONT_OPTIONS, UI_FONT_OPTIONS } from "@/lib/appearance";
+import {
+  AGENT_OPTIONS,
+  defaultAgentModel,
+  mergeAgentModels,
+  type AgentKind,
+} from "@/lib/agent-kind";
 import { cn } from "@/lib/utils";
+
+const CITATION_NONE = "__none__";
+
+interface AgentBinaryStatus {
+  id: AgentKind;
+  label: string;
+  binary: string;
+  installed: boolean;
+  authenticated: boolean;
+  ready: boolean;
+  detail: string;
+  binary_path: string | null;
+  version: string | null;
+}
 
 export function AppearanceSettings() {
   const { theme, setTheme } = useTheme();
@@ -123,6 +156,122 @@ export function AppearanceSettings() {
   );
 }
 
+export function AgentSettings() {
+  const agentKind = useSettingsStore((s) => s.agentKind);
+  const setAgentKind = useSettingsStore((s) => s.setAgentKind);
+  const agentModels = useSettingsStore((s) => s.agentModels);
+  const setAgentModel = useSettingsStore((s) => s.setAgentModel);
+  const [statuses, setStatuses] = useState<AgentBinaryStatus[]>([]);
+  const [liveModels, setLiveModels] = useState<string[]>([]);
+  const modelOptions = mergeAgentModels(agentKind, liveModels);
+  const selectedModel =
+    modelOptions.find((item) => item.id === agentModels[agentKind])?.id ||
+    modelOptions[0]?.id ||
+    defaultAgentModel(agentKind);
+
+  useEffect(() => {
+    let cancelled = false;
+    invoke<AgentBinaryStatus[]>("check_agents_status")
+      .then((result) => {
+        if (!cancelled) setStatuses(result);
+      })
+      .catch(() => {
+        if (!cancelled) setStatuses([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    invoke<{ id: string }[]>("list_agent_models", { agent: agentKind })
+      .then((result) => {
+        if (!cancelled) setLiveModels(result.map((item) => item.id));
+      })
+      .catch(() => {
+        if (!cancelled) setLiveModels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentKind]);
+
+  return (
+    <div className="space-y-5">
+      <Field label="Local CLI">
+        <div className="space-y-1.5">
+          {AGENT_OPTIONS.map((option) => {
+            const status = statuses.find((item) => item.id === option.id);
+            const selected = agentKind === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                className={cn(
+                  "flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left",
+                  selected
+                    ? "border-foreground bg-accent"
+                    : "border-border hover:bg-muted/60",
+                )}
+                onClick={() => {
+                  if (option.id === "claude" || status?.ready) {
+                    setAgentKind(option.id);
+                  }
+                }}
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 size-3.5 shrink-0 rounded-full border",
+                    selected
+                      ? "border-foreground bg-foreground"
+                      : "border-muted-foreground/40",
+                  )}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-xs">{option.label}</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {status?.detail || "…"}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    {option.hint}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Chat spawns the selected CLI in the project folder, like Claude Code.
+          Auth stays with that CLI. Model and thinking effort are in the chat
+          picker, same as Claude Code.
+        </p>
+      </Field>
+      {agentKind !== "claude" && modelOptions.length > 0 && (
+        <Field label="Model">
+          <Select
+            value={selectedModel}
+            onValueChange={(value) => setAgentModel(agentKind, value)}
+          >
+            <SelectTrigger className="h-8 w-full text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {modelOptions.map((model) => (
+                <SelectItem key={model.id} value={model.id}>
+                  {model.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+    </div>
+  );
+}
+
 export function LatexSettings() {
   const compilerBackend = useSettingsStore((s) => s.compilerBackend);
   const setCompilerBackend = useSettingsStore((s) => s.setCompilerBackend);
@@ -132,8 +281,28 @@ export function LatexSettings() {
   const setVimMode = useSettingsStore((s) => s.setVimMode);
   const citationFile = useSettingsStore((s) => s.citationFile);
   const setCitationFile = useSettingsStore((s) => s.setCitationFile);
+  const compileDocumentsByProject = useSettingsStore(
+    (s) => s.compileDocumentsByProject,
+  );
+  const setProjectCompileDocuments = useSettingsStore(
+    (s) => s.setProjectCompileDocuments,
+  );
   const files = useDocumentStore((s) => s.files);
+  const projectRoot = useDocumentStore((s) => s.projectRoot);
   const citationFiles = files.filter((f) => isCitationFileName(f.name));
+  const texFiles = files.filter((f) => f.type === "tex");
+  const storedDocs = projectRoot
+    ? (compileDocumentsByProject[projectRoot] ?? [])
+    : [];
+  const inferredDocs = inferCompileDocuments(files, citationFile);
+  const compileDocs =
+    storedDocs.length > 0 ? storedDocs : inferredDocs.slice(0, 1);
+
+  const persistDocs = (next: CompileDocument[]) => {
+    if (!projectRoot) return;
+    setProjectCompileDocuments(projectRoot, next);
+    setCitationFile(next[0]?.citationFile ?? "");
+  };
 
   return (
     <div className="space-y-5">
@@ -171,26 +340,116 @@ export function LatexSettings() {
           Used when the file has no % !TEX program comment.
         </p>
       </Field>
-      <Field label="Citation file">
-        <Select value={citationFile} onValueChange={(v) => setCitationFile(v)}>
-          <SelectTrigger className="h-8 w-full text-xs">
-            <SelectValue placeholder="references.bib" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="references.bib">references.bib</SelectItem>
-            {citationFiles
-              .filter((f) => f.relativePath !== "references.bib")
-              .map((f) => (
-                <SelectItem key={f.id} value={f.relativePath}>
-                  {f.relativePath}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
-        <p className="text-[11px] text-muted-foreground">
-          Zotero import writes here. Allowed: .bib, .bibtex, .json (CSL), .ris,
-          .enw.
-        </p>
+      <Field label="Documents">
+        {!projectRoot ? (
+          <p className="text-[11px] text-muted-foreground">
+            Open a project to choose main files and their citation files.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {compileDocs.map((doc, index) => (
+              <div key={`${doc.mainFile}-${index}`} className="space-y-1.5">
+                <p className="text-[11px] text-muted-foreground">
+                  {index === 0
+                    ? "Default open / compile"
+                    : `Document ${index + 1}`}
+                </p>
+                <Select
+                  value={doc.mainFile}
+                  onValueChange={(value) => {
+                    const next = compileDocs.map((item, i) =>
+                      i === index ? { ...item, mainFile: value } : item,
+                    );
+                    persistDocs(next);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue placeholder="main.tex" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {texFiles.map((file) => (
+                      <SelectItem key={file.id} value={file.relativePath}>
+                        {file.relativePath}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={doc.citationFile || CITATION_NONE}
+                  onValueChange={(value) => {
+                    const next = compileDocs.map((item, i) =>
+                      i === index
+                        ? {
+                            ...item,
+                            citationFile: value === CITATION_NONE ? "" : value,
+                          }
+                        : item,
+                    );
+                    persistDocs(next);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={CITATION_NONE}>None</SelectItem>
+                    {doc.citationFile &&
+                    !citationFiles.some(
+                      (file) => file.relativePath === doc.citationFile,
+                    ) ? (
+                      <SelectItem value={doc.citationFile}>
+                        {doc.citationFile}
+                      </SelectItem>
+                    ) : null}
+                    {citationFiles.map((f) => (
+                      <SelectItem key={f.id} value={f.relativePath}>
+                        {f.relativePath}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {compileDocs.length > 1 && (
+                  <button
+                    type="button"
+                    className="text-[11px] text-muted-foreground hover:text-foreground"
+                    onClick={() =>
+                      persistDocs(compileDocs.filter((_, i) => i !== index))
+                    }
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-full text-xs"
+              onClick={() => {
+                const used = new Set(compileDocs.map((doc) => doc.mainFile));
+                const nextMain =
+                  texFiles.find((file) => !used.has(file.relativePath))
+                    ?.relativePath ?? compileDocs[0]?.mainFile;
+                if (!nextMain) return;
+                persistDocs([
+                  ...compileDocs,
+                  {
+                    mainFile: nextMain,
+                    citationFile: "",
+                  },
+                ]);
+              }}
+            >
+              <PlusIcon className="size-3.5" />
+              Add another main file
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              First row is opened and compiled when the project loads. Citation
+              files are optional.
+            </p>
+          </div>
+        )}
       </Field>
       <Field label="Editor">
         <button

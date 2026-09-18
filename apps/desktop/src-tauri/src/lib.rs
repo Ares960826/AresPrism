@@ -1,8 +1,10 @@
 #![recursion_limit = "512"]
 
+mod agent_port;
 mod anthropic_proxy;
 mod claude;
 mod claude_process;
+mod git_workspace;
 mod history;
 mod latex;
 mod skills;
@@ -10,7 +12,6 @@ mod slash_commands;
 mod uv;
 mod zotero;
 mod zotero_local;
-mod git_workspace;
 
 use std::path::Path;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -607,6 +608,10 @@ pub fn run() {
             latex::compile_latex,
             latex::synctex_edit,
             latex::detect_texlive,
+            agent_port::check_agents_status,
+            agent_port::list_agent_models,
+            agent_port::list_agent_efforts,
+            agent_port::execute_agent,
             claude::check_claude_status,
             claude::install_claude_cli,
             claude::login_claude,

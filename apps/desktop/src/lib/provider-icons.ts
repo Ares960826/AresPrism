@@ -1,11 +1,13 @@
 import anthropicIcon from "@/assets/providers/anthropic.svg";
 import deepseekIcon from "@/assets/providers/deepseek.svg";
 import geminiIcon from "@/assets/providers/gemini-color.svg";
+import grokIcon from "@/assets/providers/grok.svg";
 import moonshotIcon from "@/assets/providers/moonshot.svg";
 import ollamaIcon from "@/assets/providers/ollama.svg";
 import openaiIcon from "@/assets/providers/openai.svg";
 import qwenIcon from "@/assets/providers/qwen.svg";
 import zhipuIcon from "@/assets/providers/zhipu-color.svg";
+import type { AgentKind } from "@/lib/agent-kind";
 
 interface ProviderIconInput {
   label?: string | null;
@@ -153,9 +155,30 @@ export function getProviderIconSrc(input: ProviderIconInput): string | null {
     return anthropicIcon;
   }
 
-  if (haystack.includes("openai") || haystack.includes("api.openai.com")) {
+  if (
+    haystack.includes("openai") ||
+    haystack.includes("api.openai.com") ||
+    haystack.includes("codex")
+  ) {
     return openaiIcon;
   }
 
+  if (haystack.includes("grok") || haystack.includes("x.ai")) {
+    return grokIcon;
+  }
+
   return null;
+}
+
+export function getAgentIconSrc(kind: AgentKind): string | null {
+  switch (kind) {
+    case "claude":
+      return anthropicIcon;
+    case "codex":
+      return openaiIcon;
+    case "grok":
+      return grokIcon;
+    case "kimi":
+      return moonshotIcon;
+  }
 }

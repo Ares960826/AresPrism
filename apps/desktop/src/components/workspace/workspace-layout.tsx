@@ -17,6 +17,8 @@ import { WorkspaceResizeHandle } from "./resize-handle";
 import { useDocumentStore } from "@/stores/document-store";
 import { usePreviewStore } from "@/stores/preview-store";
 import { useLayoutStore } from "@/stores/layout-store";
+import { useSettingsStore } from "@/stores/settings-store";
+import { previewPanelMinPercent } from "@/lib/preview-panel";
 import { FloatingPane } from "./floating-pane";
 
 const SIDEBAR_DEFAULT_SIZE = 15;
@@ -46,6 +48,12 @@ export function WorkspaceLayout() {
     SIDEBAR_COLLAPSED_SIZE_FALLBACK,
   );
   const [codeVisible, setCodeVisible] = useState(true);
+  const [workspaceWidth, setWorkspaceWidth] = useState(1400);
+  const compilerBackend = useSettingsStore((s) => s.compilerBackend);
+  const previewMinSize = previewPanelMinPercent(
+    workspaceWidth,
+    compilerBackend !== "tectonic",
+  );
 
   const getCollapsedSidebarSize = useCallback(() => {
     const workspaceWidth =
@@ -156,7 +164,10 @@ export function WorkspaceLayout() {
   }, []);
 
   useLayoutEffect(() => {
+    const workspaceElement = workspaceRef.current;
     const updateCollapsedSize = () => {
+      const width = workspaceRef.current?.clientWidth ?? window.innerWidth;
+      setWorkspaceWidth(width);
       const nextSize = getCollapsedSidebarSize();
       setSidebarCollapsedSize(nextSize);
 
@@ -166,8 +177,6 @@ export function WorkspaceLayout() {
     };
 
     updateCollapsedSize();
-
-    const workspaceElement = workspaceRef.current;
     if (!workspaceElement) return;
 
     const resizeObserver = new ResizeObserver(updateCollapsedSize);
@@ -236,7 +245,7 @@ export function WorkspaceLayout() {
         {dockedPreview && (
           <Panel
             defaultSize={codeVisible ? 42.5 : 85}
-            minSize={18}
+            minSize={previewMinSize}
             className="min-h-0 min-w-0 overflow-hidden"
           >
             <PdfPreview />
