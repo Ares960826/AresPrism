@@ -60,7 +60,7 @@ ClaudePrism        delibae / MIT
       └── AresPrism   本仓库
 ```
 
-继承代码的作者写在 [CREDITS.md](./CREDITS.md)。GitHub 的 Contributors 页面不是这份名单。
+AresPrism 作者以及 Open Prism / ClaudePrism 继承代码的作者写在 [CREDITS.md](./CREDITS.md)。GitHub Contributors 页面不是完整致谢名单。
 
 ## 许可证
 

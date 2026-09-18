@@ -26,9 +26,15 @@ ClaudePrism           delibae / MIT
 
 Copyright notices: [LICENSE](./LICENSE) (`assistant-ui`, `delibae`, `Ares`).
 
-## People whose work is in this tree
+## AresPrism
 
-Names below are taken from the ClaudePrism history at snapshot `674e7c7` (v1.3.0). Bots omitted. GitHub usernames are included when they match that history.
+| Name | Notes |
+|---|---|
+| [Ares](https://github.com/Ares960826) (`@Ares960826`) | AresPrism author |
+
+## Inherited from ClaudePrism / Open Prism
+
+Names below are taken from the ClaudePrism history at snapshot `674e7c7` (v1.3.0). Bots omitted. GitHub usernames are included when they match that history. These people built the code AresPrism started from; they are not listed as GitHub “contributors” of this repository because public git history starts at AresPrism 0.1.0.
 
 | Name | Notes |
 |---|---|

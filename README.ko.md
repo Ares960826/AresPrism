@@ -66,7 +66,7 @@ ClaudePrism        delibae / MIT
       └── AresPrism   이 저장소
 ```
 
-상속된 코드를 작성한 사람은 [CREDITS.md](./CREDITS.md)에 있습니다. GitHub Contributors 페이지가 그 목록이 아닙니다.
+AresPrism 작성자와 Open Prism / ClaudePrism에서 상속한 코드를 작성한 사람은 [CREDITS.md](./CREDITS.md)에 있습니다. GitHub Contributors 페이지가 전체 감사 목록이 아닙니다.
 
 ## 라이선스
 

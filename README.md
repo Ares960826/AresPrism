@@ -72,7 +72,7 @@ ClaudePrism        delibae / MIT
       └── AresPrism   this repository
 ```
 
-People who wrote the inherited code are listed in [CREDITS.md](./CREDITS.md). Please do not treat the GitHub “Contributors” graph as that list.
+AresPrism’s author and the people who wrote the inherited Open Prism / ClaudePrism code are listed in [CREDITS.md](./CREDITS.md). Please do not treat the GitHub “Contributors” graph as that full list.
 
 ## License
 
