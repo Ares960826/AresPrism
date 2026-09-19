@@ -153,7 +153,6 @@ export function ScientificSkillsOnboarding({
   const displayCategories: SkillCategoryData[] =
     importedSkills.length > 0
       ? [
-          ...categories,
           {
             id: "imported",
             name: "Imported Skills",
@@ -164,6 +163,7 @@ export function ScientificSkillsOnboarding({
               folder: skill.folder,
             })),
           },
+          ...categories,
         ]
       : categories;
 

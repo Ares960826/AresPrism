@@ -11,7 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readFile, readTextFile, stat } from "@tauri-apps/plugin-fs";
+import { readDir, readFile, readTextFile, stat } from "@tauri-apps/plugin-fs";
 import { toast } from "sonner";
 import {
   FolderOpenIcon,
@@ -33,6 +33,8 @@ import {
   MonitorIcon,
   MoonIcon,
   SunIcon,
+  LayoutGridIcon,
+  ListIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -42,6 +44,8 @@ import { useClaudeSetupStore } from "@/stores/claude-setup-store";
 import { useUvSetupStore } from "@/stores/uv-setup-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { compileLatex } from "@/lib/latex-compiler";
+import { isLikelyMainTex } from "@/lib/compile-documents";
+import { previewPdfCandidates } from "@/lib/project-preview-paths";
 import { APP_NAME, APP_REPO_URL } from "@/lib/app-identity";
 import { getMupdfClient } from "@/lib/mupdf/mupdf-client";
 import { exists, join } from "@/lib/tauri/fs";
@@ -118,6 +122,8 @@ export function ProjectPicker() {
   const searchShortcutLabel = "⌘ K";
 
   const recentProjects = useProjectStore((s) => s.recentProjects);
+  const homeProjectView = useSettingsStore((s) => s.homeProjectView);
+  const setHomeProjectView = useSettingsStore((s) => s.setHomeProjectView);
   const addRecentProject = useProjectStore((s) => s.addRecentProject);
   const removeRecentProject = useProjectStore((s) => s.removeRecentProject);
   const openProject = useDocumentStore((s) => s.openProject);
@@ -250,7 +256,6 @@ export function ProjectPicker() {
         >
           {!isSidebarCollapsed && (
             <div className="flex min-w-0 items-center gap-2">
-              <img src="/icon-192.png" alt={APP_NAME} className="size-6" />
               <span className="truncate font-semibold text-sm">{APP_NAME}</span>
             </div>
           )}
@@ -378,6 +383,34 @@ export function ProjectPicker() {
                 </kbd>
               </div>
 
+              <div className="flex shrink-0 items-center rounded-lg border border-border/70 p-0.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "size-8",
+                    homeProjectView === "gallery" && "bg-muted",
+                  )}
+                  title="Gallery"
+                  onClick={() => setHomeProjectView("gallery")}
+                >
+                  <LayoutGridIcon className="size-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "size-8",
+                    homeProjectView === "list" && "bg-muted",
+                  )}
+                  title="List"
+                  onClick={() => setHomeProjectView("list")}
+                >
+                  <ListIcon className="size-3.5" />
+                </Button>
+              </div>
               <Button
                 onClick={handleOpenFolder}
                 variant="secondary"
@@ -480,10 +513,17 @@ export function ProjectPicker() {
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-6 gap-y-6">
+                <div
+                  className={
+                    homeProjectView === "list"
+                      ? "flex flex-col gap-2"
+                      : "grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-6 gap-y-6"
+                  }
+                >
                   {visibleProjects.map((project) => (
                     <ProjectPreviewCard
                       key={project.path}
+                      layout={homeProjectView}
                       project={project}
                       onOpen={() => handleOpenRecent(project.path)}
                       onRemove={() => setRemoveProjectTarget(project)}
@@ -702,6 +742,92 @@ function formatProjectCreatedDate(createdAt: number | null) {
   }).format(new Date(createdAt));
 }
 
+async function listRootTexFiles(
+  projectPath: string,
+): Promise<{ relativePath: string; absolutePath: string }[]> {
+  try {
+    const entries = await readDir(projectPath);
+    const files = [];
+    for (const entry of entries) {
+      if (entry.isDirectory || !entry.name.toLowerCase().endsWith(".tex")) {
+        continue;
+      }
+      files.push({
+        relativePath: entry.name,
+        absolutePath: await join(projectPath, entry.name),
+      });
+    }
+    return files;
+  } catch {
+    return [];
+  }
+}
+
+async function discoverProjectMains(projectPath: string): Promise<string[]> {
+  const stored =
+    useSettingsStore.getState().compileDocumentsByProject[projectPath] ?? [];
+  const storedMains = stored
+    .map((doc) => doc.mainFile)
+    .filter((path) => path.trim().length > 0);
+  if (storedMains.length > 0) return storedMains;
+
+  const rootTex = await listRootTexFiles(projectPath);
+  const mains: string[] = [];
+  for (const file of rootTex) {
+    try {
+      const content = await readTextFile(file.absolutePath);
+      if (
+        isLikelyMainTex({
+          type: "tex",
+          name: file.relativePath,
+          relativePath: file.relativePath,
+          content,
+        })
+      ) {
+        mains.push(file.relativePath);
+      }
+    } catch {
+      /* skip unreadable tex */
+    }
+  }
+  if (mains.length > 0) return mains;
+  const fallback = await firstExistingProjectFile(projectPath, [
+    ["main.tex"],
+    ["document.tex"],
+  ]);
+  return fallback ? [fallback.relativePath] : [];
+}
+
+async function findBuiltPdf(
+  projectPath: string,
+  mains: string[],
+): Promise<string | null> {
+  const fromCandidates = await firstExistingPath(
+    projectPath,
+    previewPdfCandidates(mains).map((rel) => rel.split("/")),
+  );
+  if (fromCandidates) return fromCandidates;
+
+  const buildRoot = await join(projectPath, ".prism", "build");
+  if (!(await exists(buildRoot))) return null;
+  try {
+    const entries = await readDir(buildRoot);
+    for (const entry of entries) {
+      if (entry.isDirectory) {
+        const nested = await join(buildRoot, entry.name, `${entry.name}.pdf`);
+        if (await exists(nested)) return nested;
+        continue;
+      }
+      if (entry.name.toLowerCase().endsWith(".pdf")) {
+        return await join(buildRoot, entry.name);
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 async function loadProjectPreview(
   project: RecentProject,
 ): Promise<ProjectPreviewData> {
@@ -714,12 +840,8 @@ async function loadProjectPreview(
 
   const promise = (async () => {
     const createdAt = await getProjectCreatedAt(project.path);
-    const pdfPath = await firstExistingPath(project.path, [
-      [".prism", "build", "main.pdf"],
-      [".prism", "build", "document.pdf"],
-      ["main.pdf"],
-      ["document.pdf"],
-    ]);
+    const mains = await discoverProjectMains(project.path);
+    const pdfPath = await findBuiltPdf(project.path, mains);
 
     if (pdfPath) {
       const data: ProjectPreviewData = {
@@ -731,10 +853,16 @@ async function loadProjectPreview(
       return data;
     }
 
-    const texFile = await firstExistingProjectFile(project.path, [
-      ["main.tex"],
-      ["document.tex"],
-    ]);
+    const texRelative = mains[0];
+    const texFile = texRelative
+      ? {
+          relativePath: texRelative,
+          absolutePath: await join(project.path, ...texRelative.split("/")),
+        }
+      : await firstExistingProjectFile(project.path, [
+          ["main.tex"],
+          ["document.tex"],
+        ]);
 
     if (texFile) {
       try {
@@ -788,10 +916,12 @@ async function loadProjectPreview(
 
 function ProjectPreviewCard({
   project,
+  layout,
   onOpen,
   onRemove,
 }: {
   project: RecentProject;
+  layout: "gallery" | "list";
   onOpen: () => void;
   onRemove: () => void;
 }) {
@@ -830,6 +960,40 @@ function ProjectPreviewCard({
       cancelled = true;
     };
   }, [project]);
+
+  if (layout === "list") {
+    return (
+      <div className="group flex items-center gap-3 rounded-lg border border-border/70 bg-background px-2 py-2 hover:border-foreground/20">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          onClick={onOpen}
+        >
+          <div className="size-14 shrink-0 overflow-hidden rounded-md border border-border/60 bg-muted/10">
+            <ProjectPreviewSurface
+              preview={preview}
+              projectName={project.name}
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium text-sm">{project.name}</div>
+            <div className="mt-0.5 truncate text-muted-foreground text-xs">
+              {[createdDateLabel, project.path].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+        </button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+          onClick={onRemove}
+          aria-label={`Remove ${project.name}`}
+        >
+          <XIcon className="size-3.5" />
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="group min-w-0">

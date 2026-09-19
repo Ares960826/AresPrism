@@ -16,7 +16,7 @@ export function useUpdater() {
   const [status, setStatus] = useState<UpdateStatus>({ state: "idle" });
   const updateRef = useRef<Update | null>(null);
 
-  const checkForUpdate = useCallback(async () => {
+  const checkForUpdate = useCallback(async (opts?: { silent?: boolean }) => {
     setStatus({ state: "checking" });
     try {
       const update = await check();
@@ -31,6 +31,10 @@ export function useUpdater() {
         notes: update.body ?? undefined,
       });
     } catch (err) {
+      if (opts?.silent) {
+        setStatus({ state: "idle" });
+        return;
+      }
       setStatus({ state: "error", message: String(err) });
     }
   }, []);
@@ -71,7 +75,5 @@ export function useUpdater() {
     }
   }, []);
 
-  // No auto-check: a packaged fork must never pull delibae/claude-prism
-  // releases. Re-enable after this fork publishes its own signed artifacts.
   return { status, checkForUpdate, installUpdate };
 }

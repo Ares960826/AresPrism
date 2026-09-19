@@ -17,8 +17,9 @@ describe("app identity", () => {
   });
 
   it("points the in-app GitHub link at the fork", () => {
-    expect(APP_REPO_URL).toBe("https://github.com/Ares960826/claude-prism");
+    expect(APP_REPO_URL).toBe("https://github.com/Ares960826/AresPrism");
     expect(APP_REPO_URL).not.toContain("delibae/claude-prism");
+    expect(APP_REPO_URL).not.toBe("https://github.com/Ares960826/claude-prism");
   });
 
   it("uses fork-local webview storage keys", () => {

@@ -3,7 +3,7 @@
 export const APP_NAME = "AresPrism";
 export const APP_SLUG = "ares-prism";
 export const DEFAULT_PROJECTS_FOLDER = "AresPrism";
-export const APP_REPO_URL = "https://github.com/Ares960826/claude-prism";
+export const APP_REPO_URL = "https://github.com/Ares960826/AresPrism";
 
 export const STORAGE_KEYS = {
   settings: "ares-prism-settings",

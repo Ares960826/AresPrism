@@ -17,6 +17,7 @@ import { createLogger } from "@/lib/debug/logger";
 import { EnvironmentOnboarding } from "@/components/environment-onboarding";
 import { AppearanceBridge } from "@/components/appearance-bridge";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { UpdateNotifier } from "@/components/update-notifier";
 import { APP_NAME } from "@/lib/app-identity";
 
 const log = createLogger("app");
@@ -234,6 +235,7 @@ export function App({ onReady }: { onReady?: () => void }) {
           <NativeWindowThemeBridge />
           <AppearanceBridge />
           <SettingsDialog />
+          <UpdateNotifier />
           {/* Global macOS titlebar drag region — sits above all content */}
           <div
             data-tauri-drag-region

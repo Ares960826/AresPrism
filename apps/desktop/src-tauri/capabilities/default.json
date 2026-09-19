@@ -154,6 +154,8 @@
     "shell:allow-stdin-write",
     "shell:allow-kill",
     "process:default",
-    "process:allow-exit"
+    "process:allow-exit",
+    "process:allow-restart",
+    "updater:default"
   ]
 }

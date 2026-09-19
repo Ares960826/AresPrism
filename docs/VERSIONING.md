@@ -16,6 +16,7 @@ AresPrism uses its own SemVer. It does not continue ClaudePrism’s 1.x numbers.
 | **0.7.0** | Multi main-file settings, live CLI routing, floating AI/preview chrome, new icon |
 | **0.7.1** | Codex stdin, docked chat gutter, settings overflow, optional bib, preview toolbar, traffic lights |
 | **0.8.0** | Business Source License 1.1; 护眼 renamed 察尔汗盐湖 |
+| **0.9.0** | Filled macOS icon, Home gallery PDF + list, in-app GitHub updates |
 | 0.x.y | Ongoing work. Patch `y` for fixes; minor `x` for user-visible features |
 | 1.0.0 | When this app is the daily driver for paper writing |
 

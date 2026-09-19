@@ -45,9 +45,14 @@ describe("tauri.conf.json CSP configuration", () => {
     expect(conf.productName).not.toBe("ClaudePrism");
   });
 
-  it("does not publish updater artifacts against upstream releases", () => {
-    expect(conf.bundle?.createUpdaterArtifacts).toBe(false);
+  it("points the updater at AresPrism GitHub releases, never upstream", () => {
+    expect(conf.bundle?.createUpdaterArtifacts).toBe(true);
     const endpoints: string[] = conf.plugins?.updater?.endpoints ?? [];
+    expect(endpoints.join(" ")).toContain(
+      "https://github.com/Ares960826/AresPrism/releases/latest/download/latest.json",
+    );
     expect(endpoints.join(" ")).not.toContain("delibae/claude-prism");
+    expect(endpoints.join(" ")).not.toContain("Ares960826/claude-prism");
+    expect(conf.plugins?.updater?.pubkey).toBeTruthy();
   });
 });

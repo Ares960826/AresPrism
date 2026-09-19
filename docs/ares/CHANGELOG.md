@@ -2,6 +2,14 @@
 
 只记本产品相对上一版的差。上游 ClaudePrism 的历史仍在 git 里，不抄到这里。
 
+## 0.9.0 — 2026-09-19
+
+- macOS 图标改为折页 A 铺满系统图标，去掉里面那层白色圆角底板
+- Home 左上角只留 AresPrism 名字，不再放图标
+- Home 画廊会去 `.prism/build/<主文件>/` 找对应 PDF 做封面；并增加列表视图
+- 设置 → Environment → Skills 里 Imported Skills 置顶
+- GitHub 有新版本时软件内提醒，可一键下载安装（只跟 AresPrism 自己的 Release，不跟上游）
+
 ## 0.8.0 — 2026-09-19
 
 - 产品许可从 MIT 改为 Business Source License 1.1：写论文、自己用可以；不能拿去做竞品桌面 LaTeX IDE。2029-09-19 起该版本自动变为 Apache-2.0。Open Prism / ClaudePrism 部分仍是 MIT。已发布的 v0.1.0–v0.7.1 标签仍按 MIT

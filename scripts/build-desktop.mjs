@@ -1,8 +1,21 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
 const env = { ...process.env };
+
+const updaterKeyPath = join(homedir(), ".tauri", "aresprism.key");
+if (!env.TAURI_SIGNING_PRIVATE_KEY && existsSync(updaterKeyPath)) {
+  env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(updaterKeyPath, "utf8").trim();
+  const passwordPath = join(homedir(), ".tauri", "aresprism.password");
+  if (!env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD && existsSync(passwordPath)) {
+    env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = readFileSync(
+      passwordPath,
+      "utf8",
+    ).trim();
+  }
+}
 
 function appendEnvFlag(name, flag) {
   const current = env[name] ?? "";
