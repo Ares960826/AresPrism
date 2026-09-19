@@ -52,9 +52,11 @@ import {
   compileLatex,
   compileIndependentRoots,
   synctexEdit,
+  synctexView,
   resolveCompileTarget,
   formatCompileError,
 } from "@/lib/latex-compiler";
+import { useSyncTexStore } from "@/stores/synctex-store";
 import { ErrorBoundary } from "react-error-boundary";
 import {
   SelectionToolbar,
@@ -111,7 +113,6 @@ export function PdfPreview() {
   const setPreviewRoot = useDocumentStore((s) => s.setPreviewRoot);
   const setCompileError = useDocumentStore((s) => s.setCompileError);
   const setIsCompiling = useDocumentStore((s) => s.setIsCompiling);
-  const content = useDocumentStore((s) => s.content);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
   const files = useDocumentStore((s) => s.files);
   const saveAllFiles = useDocumentStore((s) => s.saveAllFiles);
@@ -131,6 +132,19 @@ export function PdfPreview() {
   const [pageInputValue, setPageInputValue] = useState<string>("1");
   const [isEditingPage, setIsEditingPage] = useState(false);
   const scrollToPageRef = useRef<((page: number) => void) | null>(null);
+  const scrollToLocationRef = useRef<
+    | ((loc: {
+        page: number;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        word?: string | null;
+      }) => void)
+    | null
+  >(null);
+  const setFollowPaused = useSyncTexStore((s) => s.setFollowPaused);
+  const viewRequest = useSyncTexStore((s) => s.viewRequest);
   const [scale, setScale] = useState<number>(1.0);
   const [captureMode, setCaptureMode] = useState(false);
   const [fitMode, setFitMode] = useState<FitMode>(null);
@@ -193,23 +207,40 @@ export function PdfPreview() {
   );
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleTextClick = useCallback(
-    (text: string) => {
-      let index = content.indexOf(text);
-      if (index === -1) {
-        const cleanText = text.replace(/[{}\\$]/g, "");
-        if (cleanText.length > 2) index = content.indexOf(cleanText);
+  const jumpToSynctexSource = useCallback(
+    (file: string, line: number, column: number) => {
+      const normalize = (p: string) =>
+        p
+          .replace(/\\/g, "/")
+          .replace(/^\.\//, "")
+          .replace(/\/\.\//g, "/");
+      const normalizedTarget = normalize(file);
+      const targetFile =
+        files.find((f) => normalize(f.relativePath) === normalizedTarget) ??
+        files.find((f) =>
+          normalizedTarget.endsWith(`/${normalize(f.relativePath)}`),
+        );
+      if (!targetFile) return;
+
+      const state = useDocumentStore.getState();
+      if (state.activeFileId !== targetFile.id) {
+        state.openFileInTab(targetFile.id);
+        setActiveFile(targetFile.id);
       }
-      if (index === -1 && text.length > 5) {
-        const words = text.split(/\s+/).filter((w) => w.length > 3);
-        for (const word of words) {
-          index = content.indexOf(word);
-          if (index !== -1) break;
-        }
+
+      const fileContent = targetFile.content ?? "";
+      const fileLines = fileContent.split("\n");
+      const targetLine = Math.max(1, Math.min(line, fileLines.length));
+      let offset = 0;
+      for (let i = 0; i < targetLine - 1; i++) {
+        offset += fileLines[i].length + 1;
       }
-      if (index !== -1) requestJumpToPosition(index);
+      if (column > 0) {
+        offset += Math.min(column, fileLines[targetLine - 1]?.length ?? 0);
+      }
+      requestJumpToPosition(offset, targetFile.id);
     },
-    [content, requestJumpToPosition],
+    [files, setActiveFile, requestJumpToPosition],
   );
 
   const handleSynctexClick = useCallback(
@@ -223,49 +254,30 @@ export function PdfPreview() {
         currentRootFileId,
       );
       if (!result) return;
-
-      const normalize = (p: string) =>
-        p.replace(/\\/g, "/").replace(/^\.\//, "");
-      const normalizedTarget = normalize(result.file);
-      const targetFile = files.find(
-        (f) => normalize(f.relativePath) === normalizedTarget,
-      );
-      if (!targetFile) return;
-
-      const state = useDocumentStore.getState();
-      const needsSwitch = state.activeFileId !== targetFile.id;
-      if (needsSwitch) {
-        setActiveFile(targetFile.id);
-      }
-
-      const fileContent = targetFile.content ?? "";
-      const fileLines = fileContent.split("\n");
-      const targetLine = Math.max(1, Math.min(result.line, fileLines.length));
-      let offset = 0;
-      for (let i = 0; i < targetLine - 1; i++) {
-        offset += fileLines[i].length + 1;
-      }
-      if (result.column > 0) {
-        offset += Math.min(
-          result.column,
-          fileLines[targetLine - 1]?.length ?? 0,
-        );
-      }
-
-      if (needsSwitch) {
-        setTimeout(() => requestJumpToPosition(offset), 100);
-      } else {
-        requestJumpToPosition(offset);
-      }
+      jumpToSynctexSource(result.file, result.line, result.column);
     },
-    [
-      projectRoot,
-      files,
-      setActiveFile,
-      requestJumpToPosition,
-      currentRootFileId,
-    ],
+    [projectRoot, currentRootFileId, jumpToSynctexSource],
   );
+
+  useEffect(() => {
+    if (!viewRequest || !projectRoot) return;
+    let cancelled = false;
+    synctexView(
+      projectRoot,
+      viewRequest.file,
+      viewRequest.line,
+      currentRootFileId,
+    ).then((loc) => {
+      if (cancelled || !loc) return;
+      scrollToLocationRef.current?.({
+        ...loc,
+        word: viewRequest.reason === "dblclick" ? viewRequest.word : null,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [viewRequest, projectRoot, currentRootFileId]);
 
   // Resolved source location from synctex
   const [resolvedSource, setResolvedSource] = useState<{
@@ -820,8 +832,13 @@ export function PdfPreview() {
                   onError={isActive ? setPdfError : undefined}
                   onLoadSuccess={isActive ? handleLoadSuccess : undefined}
                   onScaleChange={isActive ? handleScaleChange : undefined}
-                  onTextClick={isActive ? handleTextClick : undefined}
                   onSynctexClick={isActive ? handleSynctexClick : undefined}
+                  onUserScroll={
+                    isActive ? () => setFollowPaused(true) : undefined
+                  }
+                  scrollToLocationRef={
+                    isActive ? scrollToLocationRef : undefined
+                  }
                   onTextSelect={isActive ? handleTextSelect : undefined}
                   onFirstPageSize={
                     isActive

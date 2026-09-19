@@ -59,6 +59,7 @@ import {
   formatCompileError,
 } from "@/lib/latex-compiler";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useSyncTexStore } from "@/stores/synctex-store";
 import { EditorToolbar } from "./editor-toolbar";
 import { EditorTabBar } from "./editor-tab-bar";
 import { SelectionToolbar, type ToolbarAction } from "./selection-toolbar";
@@ -118,7 +119,18 @@ export function LatexEditor() {
   const setCursorPosition = useDocumentStore((s) => s.setCursorPosition);
   const setSelectionRange = useDocumentStore((s) => s.setSelectionRange);
   const jumpToPosition = useDocumentStore((s) => s.jumpToPosition);
+  const jumpToFileId = useDocumentStore((s) => s.jumpToFileId);
   const clearJumpRequest = useDocumentStore((s) => s.clearJumpRequest);
+  const synctexFollowCursor = useSettingsStore((s) => s.synctexFollowCursor);
+  const synctexDblClickLocate = useSettingsStore(
+    (s) => s.synctexDblClickLocate,
+  );
+  const synctexFollowRef = useRef(synctexFollowCursor);
+  synctexFollowRef.current = synctexFollowCursor;
+  const synctexDblClickRef = useRef(synctexDblClickLocate);
+  synctexDblClickRef.current = synctexDblClickLocate;
+  const applyingPdfJumpRef = useRef(false);
+  const followTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setIsCompiling = useDocumentStore((s) => s.setIsCompiling);
   const setPdfData = useDocumentStore((s) => s.setPdfData);
@@ -323,6 +335,28 @@ export function LatexEditor() {
   };
 
   useEffect(() => {
+    const flushSnapshot = () => {
+      const state = useDocumentStore.getState();
+      if (!state.projectRoot) return;
+      void state.saveAllFiles().then(() => {
+        useHistoryStore
+          .getState()
+          .createSnapshot(state.projectRoot!, "[auto] Idle")
+          .catch(() => {});
+      });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushSnapshot();
+    };
+    window.addEventListener("blur", flushSnapshot);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", flushSnapshot);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!searchQuery || !activeFileContent) {
       setMatchCount(0);
       setCurrentMatch(0);
@@ -497,6 +531,37 @@ export function LatexEditor() {
       if (update.selectionSet) {
         const { from, to, head } = update.state.selection.main;
         setCursorPosition(head);
+        if (
+          synctexFollowRef.current &&
+          !applyingPdfJumpRef.current &&
+          useDocumentStore
+            .getState()
+            .files.find(
+              (f) => f.id === useDocumentStore.getState().activeFileId,
+            )?.type === "tex"
+        ) {
+          const line = update.state.doc.lineAt(head);
+          const file = useDocumentStore
+            .getState()
+            .files.find(
+              (item) => item.id === useDocumentStore.getState().activeFileId,
+            );
+          if (file && followTimerRef.current)
+            clearTimeout(followTimerRef.current);
+          if (file) {
+            useSyncTexStore.getState().setFollowPaused(false);
+            followTimerRef.current = setTimeout(() => {
+              if (useSyncTexStore.getState().followPaused) return;
+              useSyncTexStore.getState().requestView({
+                file: file.relativePath,
+                line: line.number,
+                column: head - line.from + 1,
+                word: null,
+                reason: "cursor",
+              });
+            }, 150);
+          }
+        }
 
         // Compute toolbar position below the selection end
         // Skip toolbar for "select all" (Cmd+A) to avoid overlay issues
@@ -692,6 +757,40 @@ export function LatexEditor() {
         mergeCompartmentRef.current.of([]),
         vimCompartmentRef.current.of([]),
         updateListener,
+        EditorView.domEventHandlers({
+          dblclick(event, view) {
+            if (!synctexDblClickRef.current) return false;
+            const docState = useDocumentStore.getState();
+            const file = docState.files.find(
+              (f) => f.id === docState.activeFileId,
+            );
+            if (!file || file.type !== "tex") return false;
+            const pos = view.posAtCoords({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            if (pos == null) return false;
+            const line = view.state.doc.lineAt(pos);
+            requestAnimationFrame(() => {
+              const sel = view.state.selection.main;
+              const selected = sel.empty
+                ? ""
+                : view.state.sliceDoc(sel.from, sel.to).trim();
+              const word =
+                selected && !selected.includes("\n") && selected.length < 80
+                  ? selected
+                  : null;
+              useSyncTexStore.getState().requestView({
+                file: file.relativePath,
+                line: line.number,
+                column: pos - line.from + 1,
+                word,
+                reason: "dblclick",
+              });
+            });
+            return false;
+          },
+        }),
         EditorView.lineWrapping,
         scrollPastEnd(),
         EditorView.theme({
@@ -811,6 +910,26 @@ export function LatexEditor() {
 
     const view = new EditorView({ state, parent: containerRef.current });
     viewRef.current = view;
+
+    const jumpState = useDocumentStore.getState();
+    if (
+      jumpState.jumpToPosition !== null &&
+      (!jumpState.jumpToFileId || jumpState.jumpToFileId === activeFileId)
+    ) {
+      const pos = Math.max(
+        0,
+        Math.min(jumpState.jumpToPosition, view.state.doc.length),
+      );
+      applyingPdfJumpRef.current = true;
+      view.dispatch({
+        selection: { anchor: pos },
+        effects: EditorView.scrollIntoView(pos, { y: "center" }),
+      });
+      jumpState.clearJumpRequest();
+      queueMicrotask(() => {
+        applyingPdfJumpRef.current = false;
+      });
+    }
 
     // Restore per-file cursor + scroll from cache
     const cached = editorStateCache.get(activeFileId);
@@ -1005,13 +1124,19 @@ export function LatexEditor() {
   useEffect(() => {
     const view = viewRef.current;
     if (!view || jumpToPosition === null) return;
+    if (jumpToFileId && jumpToFileId !== activeFileId) return;
+    const pos = Math.max(0, Math.min(jumpToPosition, view.state.doc.length));
+    applyingPdfJumpRef.current = true;
     view.dispatch({
-      selection: { anchor: jumpToPosition },
-      effects: EditorView.scrollIntoView(jumpToPosition, { y: "center" }),
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: "center" }),
     });
     view.focus();
     clearJumpRequest();
-  }, [jumpToPosition, clearJumpRequest]);
+    queueMicrotask(() => {
+      applyingPdfJumpRef.current = false;
+    });
+  }, [jumpToPosition, jumpToFileId, activeFileId, clearJumpRequest]);
 
   // Selection toolbar: compute context label and container-relative position
   const selectionRange = useDocumentStore((s) => s.selectionRange);

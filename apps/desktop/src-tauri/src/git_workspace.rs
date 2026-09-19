@@ -20,6 +20,16 @@ fn open_repo(project_root: &str) -> Result<Repository, String> {
 }
 
 #[tauri::command]
+pub fn git_init(project_root: String) -> Result<(), String> {
+    let path = Path::new(&project_root);
+    if path.join(".git").exists() {
+        return Ok(());
+    }
+    Repository::init(path).map_err(|e| format!("Failed to initialize git repository: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn git_status(project_root: String) -> Result<Vec<GitFileStatus>, String> {
     let repo = open_repo(&project_root)?;
     let mut opts = StatusOptions::new();
@@ -117,4 +127,29 @@ pub fn git_log(project_root: String) -> Result<Vec<GitCommitInfo>, String> {
         }
     }
     Ok(commits)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_git_init_creates_repo() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("main.tex"), "x").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        git_init(root.clone()).unwrap();
+        assert!(dir.path().join(".git").exists());
+        git_init(root).unwrap();
+        assert!(dir.path().join(".git").exists());
+    }
+
+    #[test]
+    fn test_git_status_errors_without_repo() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        assert!(git_status(root).is_err());
+    }
 }

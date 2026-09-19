@@ -45,6 +45,15 @@ pub struct SynctexResult {
     pub column: u32,
 }
 
+#[derive(serde::Serialize)]
+pub struct SynctexViewResult {
+    pub page: u32,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 // --- Helpers ---
 
 fn extract_error_lines(log: &str) -> String {
@@ -765,20 +774,35 @@ fn compile_with_texlive(
 
 // --- SyncTeX Native Parser ---
 
+#[derive(Clone)]
 struct SynctexNode {
     tag: u32,
     line: u32,
+    page: u32,
     h: f64, // PDF points
     v: f64, // PDF points
+    width: f64,
+    height: f64,
 }
 
-/// Parse synctex data and find the source location closest to (target_x, target_y) on target_page.
-fn parse_synctex_data(
-    data: &str,
-    target_page: u32,
-    target_x: f64,
-    target_y: f64,
-) -> Option<(String, u32, u32)> {
+#[derive(Clone, Default)]
+struct SynctexIndex {
+    inputs: HashMap<u32, String>,
+    nodes: Vec<SynctexNode>,
+}
+
+fn parse_synctex_input_line(line: &str, inputs: &mut HashMap<u32, String>) {
+    let Some(rest) = line.strip_prefix("Input:") else {
+        return;
+    };
+    if let Some(colon_pos) = rest.find(':') {
+        if let Ok(tag) = rest[..colon_pos].parse::<u32>() {
+            inputs.insert(tag, rest[colon_pos + 1..].to_string());
+        }
+    }
+}
+
+fn parse_synctex_index(data: &str) -> SynctexIndex {
     let mut inputs: HashMap<u32, String> = HashMap::new();
     let mut magnification: f64 = 1000.0;
     let mut unit: f64 = 1.0;
@@ -786,7 +810,7 @@ fn parse_synctex_data(
     let mut y_offset: f64 = 0.0;
 
     let mut in_content = false;
-    let mut on_target_page = false;
+    let mut current_page: u32 = 0;
     let mut nodes: Vec<SynctexNode> = Vec::new();
 
     for raw_line in data.lines() {
@@ -796,12 +820,8 @@ fn parse_synctex_data(
         }
 
         if !in_content {
-            if let Some(rest) = line.strip_prefix("Input:") {
-                if let Some(colon_pos) = rest.find(':') {
-                    if let Ok(tag) = rest[..colon_pos].parse::<u32>() {
-                        inputs.insert(tag, rest[colon_pos + 1..].to_string());
-                    }
-                }
+            if line.starts_with("Input:") {
+                parse_synctex_input_line(line, &mut inputs);
             } else if let Some(rest) = line.strip_prefix("Magnification:") {
                 magnification = rest.trim().parse().unwrap_or(1000.0);
             } else if let Some(rest) = line.strip_prefix("Unit:") {
@@ -816,9 +836,12 @@ fn parse_synctex_data(
             continue;
         }
 
-        // Content section
         if line.starts_with("Postamble:") {
             break;
+        }
+        if line.starts_with("Input:") {
+            parse_synctex_input_line(line, &mut inputs);
+            continue;
         }
 
         let first_byte = match line.as_bytes().first() {
@@ -827,21 +850,21 @@ fn parse_synctex_data(
         };
         match first_byte {
             b'{' => {
-                let page: u32 = line.get(1..).and_then(|s| s.parse().ok()).unwrap_or(0);
-                on_target_page = page == target_page;
+                current_page = line.get(1..).and_then(|s| s.parse().ok()).unwrap_or(0);
             }
             b'}' => {
-                on_target_page = false;
+                current_page = 0;
             }
             // Box/node records: [, (, h, v, k, x, g, $
-            b'[' | b'(' | b'h' | b'v' | b'k' | b'x' | b'g' | b'$' if on_target_page => {
+            b'[' | b'(' | b'h' | b'v' | b'k' | b'x' | b'g' | b'$' if current_page > 0 => {
                 // Convert synctex internal units to PDF points (bp)
                 // 1 TeX pt = 65536 sp; 1 inch = 72.27 TeX pt = 72 PDF bp
                 let factor = unit * magnification / (1000.0 * 65536.0) * 72.0 / 72.27;
-                if let Some(node) = line
+                if let Some(mut node) = line
                     .get(1..)
                     .and_then(|s| parse_synctex_node(s, factor, x_offset, y_offset))
                 {
+                    node.page = current_page;
                     nodes.push(node);
                 }
             }
@@ -849,26 +872,113 @@ fn parse_synctex_data(
         }
     }
 
-    if nodes.is_empty() {
-        return None;
-    }
+    SynctexIndex { inputs, nodes }
+}
 
-    // Find closest node to (target_x, target_y)
-    let mut best_idx = 0;
-    let mut best_dist = f64::MAX;
-    for (i, node) in nodes.iter().enumerate() {
+fn is_project_source_file(path: &str) -> bool {
+    let lower = path.replace('\\', "/").to_ascii_lowercase();
+    if lower.contains("texmf") || lower.contains("/tex/latex/") {
+        return false;
+    }
+    let name = lower.rsplit('/').next().unwrap_or(&lower);
+    name.ends_with(".tex") || name.ends_with(".ltx")
+}
+
+fn normalize_synctex_path(path: &str) -> String {
+    let mut file = path.replace('\\', "/");
+    while let Some(rest) = file.strip_prefix("./") {
+        file = rest.to_string();
+    }
+    while file.contains("/./") {
+        file = file.replace("/./", "/");
+    }
+    file
+}
+
+fn synctex_file_matches(input_path: &str, wanted: &str) -> bool {
+    let input = normalize_synctex_path(input_path);
+    let wanted = normalize_synctex_path(wanted);
+    if input == wanted {
+        return true;
+    }
+    input.ends_with(&format!("/{wanted}"))
+}
+
+/// Parse synctex data and find the source location closest to (target_x, target_y) on target_page.
+fn parse_synctex_data(
+    data: &str,
+    target_page: u32,
+    target_x: f64,
+    target_y: f64,
+) -> Option<(String, u32, u32)> {
+    let index = parse_synctex_index(data);
+    synctex_edit_lookup(&index, target_page, target_x, target_y)
+}
+
+fn synctex_edit_lookup(
+    index: &SynctexIndex,
+    target_page: u32,
+    target_x: f64,
+    target_y: f64,
+) -> Option<(String, u32, u32)> {
+    let mut ranked: Vec<(f64, usize)> = Vec::new();
+    for (i, node) in index.nodes.iter().enumerate() {
+        if node.page != target_page {
+            continue;
+        }
         let dx = node.h - target_x;
         let dy = node.v - target_y;
-        let dist = dx * dx + dy * dy;
-        if dist < best_dist {
-            best_dist = dist;
-            best_idx = i;
+        ranked.push((dx * dx + dy * dy, i));
+    }
+    ranked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut fallback: Option<(String, u32)> = None;
+    for (_, i) in ranked {
+        let node = &index.nodes[i];
+        let Some(filename) = index.inputs.get(&node.tag) else {
+            continue;
+        };
+        if is_project_source_file(filename) {
+            return Some((filename.clone(), node.line, 0));
+        }
+        if fallback.is_none() {
+            fallback = Some((filename.clone(), node.line));
         }
     }
+    fallback.map(|(file, line)| (file, line, 0))
+}
 
-    let best = nodes.get(best_idx)?;
-    let filename = inputs.get(&best.tag)?.clone();
-    Some((filename, best.line, 0))
+fn synctex_view_lookup(
+    index: &SynctexIndex,
+    file: &str,
+    line: u32,
+) -> Option<(u32, f64, f64, f64, f64)> {
+    let mut exact: Option<&SynctexNode> = None;
+    let mut nearest: Option<(u32, &SynctexNode)> = None;
+    for node in &index.nodes {
+        let Some(path) = index.inputs.get(&node.tag) else {
+            continue;
+        };
+        if !synctex_file_matches(path, file) {
+            continue;
+        }
+        if node.line == line {
+            if exact.is_none_or(|cur| node.width >= cur.width) {
+                exact = Some(node);
+            }
+        } else {
+            let dist = node.line.abs_diff(line);
+            if nearest.is_none_or(|(best_dist, cur)| {
+                dist < best_dist || (dist == best_dist && node.width >= cur.width)
+            }) {
+                nearest = Some((dist, node));
+            }
+        }
+    }
+    let node = exact.or(nearest.map(|(_, n)| n))?;
+    let width = if node.width > 1.0 { node.width } else { 72.0 };
+    let height = if node.height > 1.0 { node.height } else { 12.0 };
+    Some((node.page, node.h, node.v, width, height))
 }
 
 /// Parse a synctex node record (after stripping the type character).
@@ -900,7 +1010,28 @@ fn parse_synctex_node(s: &str, factor: f64, x_offset: f64, y_offset: f64) -> Opt
     let h = h_raw as f64 * factor + x_offset;
     let v = v_raw as f64 * factor + y_offset;
 
-    Some(SynctexNode { tag, line, h, v })
+    let mut width = 0.0;
+    let mut height = 0.0;
+    if let Some(dims) = colon_parts.get(2) {
+        let parts: Vec<&str> = dims.splitn(3, ',').collect();
+        if parts.len() >= 2 {
+            let w_raw: f64 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            let h_raw_dim: f64 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            let d_raw: f64 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            width = w_raw * factor;
+            height = (h_raw_dim + d_raw) * factor;
+        }
+    }
+
+    Some(SynctexNode {
+        tag,
+        line,
+        page: 0,
+        h,
+        v,
+        width,
+        height,
+    })
 }
 
 // --- Tauri Commands ---
@@ -1258,20 +1389,77 @@ pub async fn synctex_edit(
     .await
     .map_err(|e| format!("Synctex task panicked: {}", e))??;
 
-    // Normalize: strip work_dir prefix and "./" or ".\\" prefix
-    let work_dir_str = work_dir.to_string_lossy().to_string();
-    if let Some(rest) = file.strip_prefix(&format!("{}/", work_dir_str)) {
-        file = rest.to_string();
-    } else if let Some(rest) = file.strip_prefix(&format!("{}\\", work_dir_str)) {
-        file = rest.to_string();
-    }
-    if let Some(rest) = file.strip_prefix("./") {
-        file = rest.to_string();
-    } else if let Some(rest) = file.strip_prefix(".\\") {
-        file = rest.to_string();
-    }
+    file = strip_synctex_workdir_prefix(&file, &work_dir);
 
     Ok(SynctexResult { file, line, column })
+}
+
+fn strip_synctex_workdir_prefix(file: &str, work_dir: &Path) -> String {
+    let mut file = normalize_synctex_path(file);
+    let work_dir_str = normalize_synctex_path(&work_dir.to_string_lossy());
+    if let Some(rest) = file.strip_prefix(&format!("{work_dir_str}/")) {
+        file = rest.to_string();
+    }
+    normalize_synctex_path(&file)
+}
+
+#[tauri::command]
+pub async fn synctex_view(
+    state: tauri::State<'_, LatexCompilerState>,
+    project_dir: String,
+    file: String,
+    line: u32,
+    main_file: Option<String>,
+) -> Result<SynctexViewResult, String> {
+    let builds = state.last_builds.lock().await;
+    let keyed = main_file
+        .as_deref()
+        .map(|name| format!("{project_dir}::{name}"));
+    let build = keyed
+        .as_ref()
+        .and_then(|key| builds.get(key))
+        .or_else(|| builds.get(&project_dir))
+        .ok_or("No build found for this project")?;
+
+    let synctex_gz = build
+        .work_dir
+        .join(format!("{}.synctex.gz", build.main_file_name));
+    let synctex_plain = build
+        .work_dir
+        .join(format!("{}.synctex", build.main_file_name));
+    drop(builds);
+
+    let (page, x, y, width, height) = tokio::task::spawn_blocking(move || {
+        let synctex_data = if synctex_gz.exists() {
+            let compressed = std::fs::read(&synctex_gz)
+                .map_err(|e| format!("Failed to read synctex.gz: {}", e))?;
+            let mut decoder = flate2::read::GzDecoder::new(&compressed[..]);
+            let mut data = String::new();
+            decoder
+                .read_to_string(&mut data)
+                .map_err(|e| format!("Failed to decompress synctex: {}", e))?;
+            Ok::<_, String>(data)
+        } else if synctex_plain.exists() {
+            std::fs::read_to_string(&synctex_plain)
+                .map_err(|e| format!("Failed to read synctex: {}", e))
+        } else {
+            Err("No synctex data found. Recompile with synctex enabled.".to_string())
+        }?;
+
+        let index = parse_synctex_index(&synctex_data);
+        synctex_view_lookup(&index, &file, line)
+            .ok_or_else(|| "Could not resolve PDF location".to_string())
+    })
+    .await
+    .map_err(|e| format!("Synctex view task panicked: {}", e))??;
+
+    Ok(SynctexViewResult {
+        page,
+        x,
+        y,
+        width,
+        height,
+    })
 }
 
 /// Clear in-memory build state on app exit.
@@ -1574,6 +1762,67 @@ Postamble:
         let (file, line, _) = result.unwrap();
         assert_eq!(file, "./chapter1.tex");
         assert_eq!(line, 15);
+    }
+
+    #[test]
+    fn test_parse_synctex_data_input_in_content_section() {
+        let data = "\
+Input:1:./main.tex
+Magnification:1000
+Unit:1
+X Offset:0
+Y Offset:0
+Content:
+{1
+h1,5,0:10,10
+Input:55:./sections/related_work.tex
+h55,65,0:200,400
+}1
+Postamble:
+";
+        let result = parse_synctex_data(data, 1, 200.0, 400.0);
+        assert!(result.is_some());
+        let (file, line, _) = result.unwrap();
+        assert_eq!(file, "./sections/related_work.tex");
+        assert_eq!(line, 65);
+    }
+
+    #[test]
+    fn test_synctex_view_lookup_included_file() {
+        let data = "\
+Input:1:./main.tex
+Magnification:1000
+Unit:1
+X Offset:0
+Y Offset:0
+Content:
+{2
+Input:55:./sections/related_work.tex
+[55,30,0:100,200:400,12,2
+}2
+Postamble:
+";
+        let index = parse_synctex_index(data);
+        let result = synctex_view_lookup(&index, "sections/related_work.tex", 30);
+        assert!(result.is_some());
+        let (page, x, y, width, height) = result.unwrap();
+        assert_eq!(page, 2);
+        assert!(x > 0.0);
+        assert!(y > 0.0);
+        assert!(width > 0.0);
+        assert!(height > 0.0);
+    }
+
+    #[test]
+    fn test_synctex_file_matches_build_copy_path() {
+        assert!(synctex_file_matches(
+            "/tmp/.prism/build/main/./sections/introduction.tex",
+            "sections/introduction.tex",
+        ));
+        assert!(!synctex_file_matches(
+            "/tmp/.prism/build/main/./sections/introduction.tex",
+            "sections/related_work.tex",
+        ));
     }
 
     #[test]

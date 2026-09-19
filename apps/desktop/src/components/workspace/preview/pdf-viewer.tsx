@@ -12,6 +12,8 @@ import {
   getCachedDocument,
   getOrOpenDocument,
 } from "@/lib/mupdf/pdf-doc-cache";
+import { getMupdfClient } from "@/lib/mupdf/mupdf-client";
+import { findWordHighlight } from "@/lib/synctex-word-box";
 import { LOCAL_ZOOM_SHORTCUTS_ATTR } from "@/lib/app-zoom";
 import { MupdfPage } from "./mupdf-page";
 import { createLogger } from "@/lib/debug/logger";
@@ -213,6 +215,18 @@ interface PdfViewerProps {
   onContainerResize?: (width: number, height: number) => void;
   onCurrentPageChange?: (page: number) => void;
   scrollToPageRef?: React.RefObject<((page: number) => void) | null>;
+  scrollToLocationRef?: React.RefObject<
+    | ((loc: {
+        page: number;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        word?: string | null;
+      }) => void)
+    | null
+  >;
+  onUserScroll?: () => void;
   captureMode?: boolean;
   onCapture?: (result: CaptureResult) => void;
   onCancelCapture?: () => void;
@@ -233,6 +247,8 @@ export function PdfViewer({
   onContainerResize,
   onCurrentPageChange,
   scrollToPageRef,
+  scrollToLocationRef,
+  onUserScroll,
   captureMode = false,
   onCapture,
   onCancelCapture,
@@ -240,6 +256,16 @@ export function PdfViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  const [highlights, setHighlights] = useState<
+    Array<{
+      page: number;
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      kind: "line" | "word";
+    }>
+  >([]);
   const [pageSizes, setPageSizes] = useState<PageSize[]>([]);
   const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -259,6 +285,7 @@ export function PdfViewer({
     y: number;
   } | null>(null);
   const gesturePinchRef = useRef<{ scale: number } | null>(null);
+  const programmaticScrollRef = useRef(false);
   const synctexClickRef = useRef(onSynctexClick);
   synctexClickRef.current = onSynctexClick;
   const textSelectRef = useRef(onTextSelect);
@@ -624,6 +651,7 @@ export function PdfViewer({
     if (!container) return;
 
     let selectionTimer: ReturnType<typeof setTimeout> | null = null;
+    let down: { clientX: number; clientY: number } | null = null;
 
     const cancelPendingSelection = () => {
       if (selectionTimer !== null) {
@@ -632,14 +660,22 @@ export function PdfViewer({
       }
     };
 
-    const handleMouseDown = () => {
+    const handleMouseDown = (e: MouseEvent) => {
       cancelPendingSelection();
+      down = { clientX: e.clientX, clientY: e.clientY };
     };
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
       if (captureMode) return;
+      const start = down;
+      down = null;
+      const moved =
+        start != null &&
+        (Math.abs(e.clientX - start.clientX) > 4 ||
+          Math.abs(e.clientY - start.clientY) > 4);
+
       const cb = textSelectRef.current;
-      if (!cb) return;
+      const synctexCb = synctexClickRef.current;
 
       cancelPendingSelection();
 
@@ -649,13 +685,32 @@ export function PdfViewer({
         const sel = window.getSelection();
         const text = sel?.toString().trim();
         if (!text || text.length < 2) {
-          cb(null);
+          cb?.(null);
+          if (!moved && synctexCb) {
+            const target = e.target as HTMLElement | null;
+            const pageEl = target?.closest(".mupdf-page") as HTMLElement | null;
+            if (pageEl) {
+              const pageNum = parseInt(
+                pageEl.getAttribute("data-page-number") || "0",
+                10,
+              );
+              if (pageNum > 0) {
+                const rect = pageEl.getBoundingClientRect();
+                const currentScale = scaleRef.current;
+                synctexCb(
+                  pageNum,
+                  (e.clientX - rect.left) / currentScale,
+                  (e.clientY - rect.top) / currentScale,
+                );
+              }
+            }
+          }
           return;
         }
 
         const anchorEl = sel?.anchorNode?.parentElement;
         if (!anchorEl?.closest(".mupdf-text-layer")) {
-          cb(null);
+          cb?.(null);
           return;
         }
 
@@ -676,7 +731,7 @@ export function PdfViewer({
           pdfY = (rect.top - pageRect.top) / currentScale;
         }
 
-        cb({
+        cb?.({
           text,
           pageNumber: pageNum,
           position: { top: rect.bottom, left: rect.left },
@@ -704,6 +759,7 @@ export function PdfViewer({
 
     let rafId = 0;
     const handleScroll = () => {
+      if (!programmaticScrollRef.current) onUserScroll?.();
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         const cb = currentPageChangeRef.current;
@@ -718,7 +774,7 @@ export function PdfViewer({
       container.removeEventListener("scroll", handleScroll);
       cancelAnimationFrame(rafId);
     };
-  }, [pageSizes, isActive]);
+  }, [pageSizes, isActive, onUserScroll]);
 
   // Expose scrollToPage via ref
   useEffect(() => {
@@ -731,6 +787,63 @@ export function PdfViewer({
       if (scrollToPageRef) scrollToPageRef.current = null;
     };
   }, [scrollToPageRef, pageSizes]);
+
+  useEffect(() => {
+    if (!scrollToLocationRef) return;
+    scrollToLocationRef.current = (loc) => {
+      const container = containerRef.current;
+      if (!container) return;
+      programmaticScrollRef.current = true;
+      scrollToPage(container, loc.page);
+      const pageEl = container.querySelector(
+        `[data-page-number="${loc.page}"]`,
+      ) as HTMLElement | null;
+      if (pageEl) {
+        const currentScale = scaleRef.current;
+        const pageTop = pageEl.offsetTop;
+        const target =
+          pageTop + loc.y * currentScale - container.clientHeight * 0.35;
+        container.scrollTop = Math.max(0, target);
+      }
+      requestAnimationFrame(() => {
+        programmaticScrollRef.current = false;
+      });
+      const lineBox = {
+        page: loc.page,
+        x: loc.x,
+        y: Math.max(0, loc.y - loc.height),
+        w: loc.width,
+        h: loc.height,
+        kind: "line" as const,
+      };
+      setHighlights([lineBox]);
+      const word = loc.word?.trim();
+      if (word && docIdRef.current > 0) {
+        void getMupdfClient()
+          .getPageText(docIdRef.current, loc.page - 1)
+          .then((text) => {
+            const lines = text.blocks.flatMap((block) =>
+              block.lines.map((line) => ({
+                text: line.text,
+                bbox: line.bbox,
+                y: line.y,
+              })),
+            );
+            const hit = findWordHighlight(lines, word, loc.y);
+            if (!hit) return;
+            setHighlights([
+              lineBox,
+              { page: loc.page, ...hit, kind: "word" as const },
+            ]);
+          })
+          .catch(() => {});
+      }
+      window.setTimeout(() => setHighlights([]), 1800);
+    };
+    return () => {
+      if (scrollToLocationRef) scrollToLocationRef.current = null;
+    };
+  }, [scrollToLocationRef, pageSizes]);
 
   // Dismiss selection toolbar on scroll
   useEffect(() => {
@@ -1180,15 +1293,34 @@ export function PdfViewer({
           </div>
         )}
         {pageSizes.map((size, i) => (
-          <MupdfPage
-            key={i}
-            docId={docIdRef.current}
-            pageIndex={i}
-            scale={scale}
-            pageWidth={size.width}
-            pageHeight={size.height}
-            isVisible={visiblePages.has(i + 1)}
-          />
+          <div key={i} className="relative">
+            <MupdfPage
+              docId={docIdRef.current}
+              pageIndex={i}
+              scale={scale}
+              pageWidth={size.width}
+              pageHeight={size.height}
+              isVisible={visiblePages.has(i + 1)}
+            />
+            {highlights
+              .filter((h) => h.page === i + 1)
+              .map((h, hi) => (
+                <div
+                  key={`${h.kind}-${hi}`}
+                  className="pointer-events-none absolute rounded-sm"
+                  style={{
+                    left: h.x * scale,
+                    top: h.y * scale,
+                    width: Math.max(h.w * scale, 8),
+                    height: Math.max(h.h * scale, 8),
+                    backgroundColor:
+                      h.kind === "word"
+                        ? "rgba(37, 99, 235, 0.38)"
+                        : "rgba(234, 179, 8, 0.32)",
+                  }}
+                />
+              ))}
+          </div>
         ))}
       </div>
       {selRect && (

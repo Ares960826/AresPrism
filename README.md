@@ -28,7 +28,7 @@ AresPrism is a **local** LaTeX tool: you edit, compile, and preview on your own 
 - Tectonic, TeX Live, and latexmk in one place, with live PDF and SyncTeX
 - Reads your local Zotero library (`zotero.sqlite`): collections, `\cite`, import to `.bib`
 - Optional AI agents (Claude Code, Codex, Grok, Kimi) when those CLIs are already on the Mac
-- A small interface and Git snapshots for versions
+- A small interface, SyncTeX, and jj/Git version history
 
 **Install and deploy**
 

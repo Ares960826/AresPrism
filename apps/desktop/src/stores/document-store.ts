@@ -91,6 +91,7 @@ interface DocumentState {
   cursorPosition: number;
   selectionRange: { start: number; end: number } | null;
   jumpToPosition: number | null;
+  jumpToFileId: string | null;
   isThreadOpen: boolean;
   /** Bumped whenever PDF bytes change — triggers re-render without storing bytes in state. */
   pdfRevision: number;
@@ -128,7 +129,7 @@ interface DocumentState {
   updateImageDataUrl: (id: string, dataUrl: string) => void;
   setCursorPosition: (position: number) => void;
   setSelectionRange: (range: { start: number; end: number } | null) => void;
-  requestJumpToPosition: (position: number) => void;
+  requestJumpToPosition: (position: number, fileId?: string) => void;
   clearJumpRequest: () => void;
   setThreadOpen: (open: boolean) => void;
   setPdfData: (data: Uint8Array | null, rootFileId?: string) => void;
@@ -352,8 +353,22 @@ async function waitForCompileToFinish(
 
 // Auto-save: debounced save 2 seconds after last content change
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+// Auto version snapshot in jj mode: 30s after last edit
+let autoSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+const AUTO_SNAPSHOT_MS = 30_000;
 // Store reference set after creation to avoid TDZ issues
 let storeRef: typeof useDocumentStore | null = null;
+
+function clearAutoTimers() {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+  if (autoSnapshotTimer) {
+    clearTimeout(autoSnapshotTimer);
+    autoSnapshotTimer = null;
+  }
+}
 
 function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
@@ -368,6 +383,26 @@ function scheduleAutoSave() {
       await state.saveAllFiles();
     }
   }, 2000);
+  if (autoSnapshotTimer) clearTimeout(autoSnapshotTimer);
+  autoSnapshotTimer = setTimeout(async () => {
+    const store = storeRef;
+    if (!store) return;
+    const state = store.getState();
+    if (!state.projectRoot) return;
+    const dirtyFiles = state.files.filter(
+      (f) => f.isDirty && f.content != null,
+    );
+    if (dirtyFiles.length > 0) {
+      await state.saveAllFiles();
+    }
+    try {
+      await useHistoryStore
+        .getState()
+        .createSnapshot(state.projectRoot, "[auto] Edit");
+    } catch {
+      // Snapshot failure should not break editing
+    }
+  }, AUTO_SNAPSHOT_MS);
 }
 
 export const useDocumentStore = create<DocumentState>()((set, get) => ({
@@ -380,6 +415,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   cursorPosition: 0,
   selectionRange: null,
   jumpToPosition: null,
+  jumpToFileId: null,
   isThreadOpen: false,
   pdfRevision: 0,
   compileError: null,
@@ -506,10 +542,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     const newRoot = buildRenamedProjectRoot(oldRoot, newName);
     if (newRoot === normalizeProjectRoot(oldRoot)) return;
 
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-      autoSaveTimer = null;
-    }
+    clearAutoTimers();
     await waitForCompileToFinish(get);
 
     const chatState = useClaudeChatStore.getState();
@@ -570,10 +603,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
   closeProject: () => {
     log.info("Closing project");
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-      autoSaveTimer = null;
-    }
+    clearAutoTimers();
     void clearDocCache();
     clearScrollPositionCache();
     clearZoomCache();
@@ -693,9 +723,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
   setSelectionRange: (range) => set({ selectionRange: range }),
 
-  requestJumpToPosition: (position) => set({ jumpToPosition: position }),
+  requestJumpToPosition: (position, fileId) =>
+    set({
+      jumpToPosition: position,
+      jumpToFileId: fileId ?? get().activeFileId,
+    }),
 
-  clearJumpRequest: () => set({ jumpToPosition: null }),
+  clearJumpRequest: () => set({ jumpToPosition: null, jumpToFileId: null }),
 
   addFile: (file, opts) => {
     const id = file.relativePath;

@@ -28,7 +28,7 @@ AresPrism 是装在自己电脑上的 LaTeX 工具：写、编、预览都在本
 - Tectonic、TeX Live、latexmk 放在一起，实时 PDF 和 SyncTeX
 - 直接读本机 Zotero 库（`zotero.sqlite`）：集合树、插入 `\cite`、导入 `.bib`
 - 本机已有 Claude Code / Codex / Grok / Kimi 时，可以接到编辑器里
-- 界面克制，工程版本用 Git 快照管理
+- 界面克制，SyncTeX，jj / Git 两种版本模式
 
 **安装与部署**
 

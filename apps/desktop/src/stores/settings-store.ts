@@ -12,6 +12,7 @@ import type { CompileDocument } from "@/lib/compile-documents";
 export type { AgentKind };
 export type CompilerBackend = "tectonic" | "texlive" | "latexmk";
 export type TexEnginePref = "auto" | "pdflatex" | "xelatex" | "lualatex";
+export type VersionHistoryTab = "jj" | "git";
 
 interface SettingsState {
   compilerBackend: CompilerBackend;
@@ -41,6 +42,12 @@ interface SettingsState {
   setAgentModel: (kind: AgentKind, model: string) => void;
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
+  synctexFollowCursor: boolean;
+  setSynctexFollowCursor: (enabled: boolean) => void;
+  synctexDblClickLocate: boolean;
+  setSynctexDblClickLocate: (enabled: boolean) => void;
+  versionHistoryTab: VersionHistoryTab;
+  setVersionHistoryTab: (tab: VersionHistoryTab) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -79,6 +86,14 @@ export const useSettingsStore = create<SettingsState>()(
         })),
       settingsOpen: false,
       setSettingsOpen: (open) => set({ settingsOpen: open }),
+      synctexFollowCursor: true,
+      setSynctexFollowCursor: (enabled) =>
+        set({ synctexFollowCursor: enabled }),
+      synctexDblClickLocate: true,
+      setSynctexDblClickLocate: (enabled) =>
+        set({ synctexDblClickLocate: enabled }),
+      versionHistoryTab: "jj",
+      setVersionHistoryTab: (tab) => set({ versionHistoryTab: tab }),
     }),
     {
       name: STORAGE_KEYS.settings,
@@ -94,6 +109,9 @@ export const useSettingsStore = create<SettingsState>()(
         compileDocumentsByProject: state.compileDocumentsByProject,
         agentKind: state.agentKind,
         agentModels: state.agentModels,
+        synctexFollowCursor: state.synctexFollowCursor,
+        synctexDblClickLocate: state.synctexDblClickLocate,
+        versionHistoryTab: state.versionHistoryTab,
       }),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<SettingsState>;

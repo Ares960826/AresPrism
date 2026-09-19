@@ -110,6 +110,126 @@ Thumbs.db
     }
 }
 
+const UNLOCKED_SNAPSHOT_LIMIT: usize = 50;
+
+/// Drop oldest unlabeled commits so at most `keep_unlocked` unlabeled snapshots remain.
+/// Commits with labels (locked versions) are always kept. The hidden history repo is
+/// never pushed, so rewriting the linear history is safe.
+fn prune_unlocked_snapshots(
+    repo: &Repository,
+    keep_unlocked: usize,
+) -> Result<Option<Oid>, String> {
+    let tags = tag_map(repo);
+    let mut revwalk = repo
+        .revwalk()
+        .map_err(|e| format!("Failed to create revwalk: {}", e))?;
+    revwalk
+        .push_head()
+        .map_err(|e| format!("Failed to push HEAD: {}", e))?;
+    // Default walk is newest-first along first-parent; TIME sort collapses
+    // same-second test commits and would keep the init snapshot.
+
+    let mut newest_first: Vec<Oid> = Vec::new();
+    for oid_result in revwalk {
+        newest_first.push(oid_result.map_err(|e| format!("Revwalk error: {}", e))?);
+    }
+
+    let mut unlocked_kept = 0usize;
+    let mut keep_newest_first: Vec<Oid> = Vec::new();
+    for oid in &newest_first {
+        let locked = tags.contains_key(oid);
+        if locked {
+            keep_newest_first.push(*oid);
+        } else if unlocked_kept < keep_unlocked {
+            keep_newest_first.push(*oid);
+            unlocked_kept += 1;
+        }
+    }
+
+    if keep_newest_first.len() == newest_first.len() {
+        return Ok(None);
+    }
+
+    let mut keep_oldest_first = keep_newest_first;
+    keep_oldest_first.reverse();
+
+    let mut oid_map: HashMap<Oid, Oid> = HashMap::new();
+    let mut new_parent: Option<Oid> = None;
+
+    for old_oid in &keep_oldest_first {
+        let old_commit = repo
+            .find_commit(*old_oid)
+            .map_err(|e| format!("Failed to find commit: {}", e))?;
+        let tree = old_commit
+            .tree()
+            .map_err(|e| format!("Failed to find tree: {}", e))?;
+        let author = old_commit.author();
+        let committer = old_commit.committer();
+        let author_name = author.name().unwrap_or("ClaudePrism").to_string();
+        let author_email = author
+            .email()
+            .unwrap_or("history@claudeprism.local")
+            .to_string();
+        let author_time = author.when();
+        let committer_name = committer.name().unwrap_or("ClaudePrism").to_string();
+        let committer_email = committer
+            .email()
+            .unwrap_or("history@claudeprism.local")
+            .to_string();
+        let committer_time = committer.when();
+        let new_author = Signature::new(&author_name, &author_email, &author_time)
+            .map_err(|e| format!("Failed to rebuild author: {}", e))?;
+        let new_committer = Signature::new(&committer_name, &committer_email, &committer_time)
+            .map_err(|e| format!("Failed to rebuild committer: {}", e))?;
+        let message = old_commit.message().unwrap_or("").to_string();
+
+        let parent_commit = match new_parent {
+            Some(pid) => Some(
+                repo.find_commit(pid)
+                    .map_err(|e| format!("Failed to find rebuilt parent: {}", e))?,
+            ),
+            None => None,
+        };
+        let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
+
+        let new_oid = repo
+            .commit(None, &new_author, &new_committer, &message, &tree, &parents)
+            .map_err(|e| format!("Failed to rebuild snapshot: {}", e))?;
+        oid_map.insert(*old_oid, new_oid);
+        new_parent = Some(new_oid);
+    }
+
+    let new_head = new_parent.ok_or_else(|| "Prune produced no commits".to_string())?;
+
+    let head_ref = repo
+        .head()
+        .ok()
+        .and_then(|h| h.name().map(|n| n.to_string()))
+        .unwrap_or_else(|| "refs/heads/master".to_string());
+    repo.reference(&head_ref, new_head, true, "prune unlocked snapshots")
+        .map_err(|e| format!("Failed to move history HEAD: {}", e))?;
+
+    for (old_oid, labels) in tags {
+        let Some(&new_oid) = oid_map.get(&old_oid) else {
+            continue;
+        };
+        let obj = repo
+            .find_commit(new_oid)
+            .map_err(|e| format!("Failed to find rebuilt commit: {}", e))?
+            .into_object();
+        for label in labels {
+            let tag_ref = format!("refs/tags/{}", label);
+            if let Ok(mut reference) = repo.find_reference(&tag_ref) {
+                let _ = reference.delete();
+            }
+            repo.tag_lightweight(&label, &obj, true)
+                .map_err(|e| format!("Failed to move lock label: {}", e))?;
+        }
+    }
+
+    Ok(Some(new_head))
+}
+
 // ─── Tauri Commands ───
 
 #[tauri::command]
@@ -252,8 +372,13 @@ pub fn history_snapshot(
         vec![]
     };
 
+    let id = match prune_unlocked_snapshots(&repo, UNLOCKED_SNAPSHOT_LIMIT)? {
+        Some(new_head) => new_head,
+        None => oid,
+    };
+
     Ok(Some(SnapshotInfo {
-        id: oid.to_string(),
+        id: id.to_string(),
         message,
         timestamp: chrono::Utc::now().timestamp(),
         labels: vec![],
@@ -947,5 +1072,61 @@ mod tests {
         let list = history_list(r, 10, 0).unwrap();
         assert_eq!(list.len(), 3);
         assert!(list.iter().any(|s| s.message.contains("[restore]")));
+    }
+
+    // ─── prune unlocked snapshots ───
+
+    #[test]
+    fn test_prune_drops_oldest_unlocked_over_limit() {
+        let dir = setup_project(&[("main.tex", "v0")]);
+        let r = root(&dir);
+        history_init(r.clone()).unwrap();
+
+        for i in 1..=6 {
+            fs::write(dir.path().join("main.tex"), format!("v{i}")).unwrap();
+            history_snapshot(r.clone(), format!("s{i}")).unwrap();
+        }
+
+        let repo = open_repo(&r).unwrap();
+        prune_unlocked_snapshots(&repo, 3).unwrap();
+
+        let list = history_list(r, 20, 0).unwrap();
+        assert_eq!(
+            list.len(),
+            3,
+            "unlocked cap is 3, got {:?}",
+            list.iter().map(|s| s.message.clone()).collect::<Vec<_>>()
+        );
+        assert!(list.iter().any(|s| s.message == "s6"));
+        assert!(list.iter().all(|s| s.message != "[init] Project opened"));
+    }
+
+    #[test]
+    fn test_prune_keeps_locked_beyond_unlocked_cap() {
+        let dir = setup_project(&[("main.tex", "v0")]);
+        let r = root(&dir);
+        history_init(r.clone()).unwrap();
+
+        let init_id = history_list(r.clone(), 1, 0).unwrap()[0].id.clone();
+        history_add_label(r.clone(), init_id, "keep-me".into()).unwrap();
+
+        for i in 1..=6 {
+            fs::write(dir.path().join("main.tex"), format!("v{i}")).unwrap();
+            history_snapshot(r.clone(), format!("s{i}")).unwrap();
+        }
+
+        let repo = open_repo(&r).unwrap();
+        prune_unlocked_snapshots(&repo, 3).unwrap();
+
+        let list = history_list(r, 20, 0).unwrap();
+        assert!(
+            list.iter().any(|s| s.labels.iter().any(|l| l == "keep-me")),
+            "locked init must survive prune: {:?}",
+            list.iter()
+                .map(|s| (s.message.clone(), s.labels.clone()))
+                .collect::<Vec<_>>()
+        );
+        let unlocked = list.iter().filter(|s| s.labels.is_empty()).count();
+        assert_eq!(unlocked, 3);
     }
 }

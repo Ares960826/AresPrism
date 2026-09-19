@@ -140,6 +140,14 @@ export interface SynctexResult {
   column: number;
 }
 
+export interface SynctexViewResult {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export async function synctexEdit(
   projectDir: string,
   page: number,
@@ -160,6 +168,28 @@ export async function synctexEdit(
     return result;
   } catch (err) {
     log.debug("SyncTeX lookup failed", { page, error: String(err) });
+    return null;
+  }
+}
+
+export async function synctexView(
+  projectDir: string,
+  file: string,
+  line: number,
+  mainFile?: string,
+): Promise<SynctexViewResult | null> {
+  try {
+    const result = await invoke<SynctexViewResult>("synctex_view", {
+      projectDir,
+      file,
+      line,
+      mainFile: mainFile ?? null,
+    });
+    if (result)
+      log.debug(`SyncTeX view: ${file}:${line} → page ${result.page}`);
+    return result;
+  } catch (err) {
+    log.debug("SyncTeX view failed", { file, line, error: String(err) });
     return null;
   }
 }

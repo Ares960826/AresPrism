@@ -6,6 +6,9 @@
 # Agent browser snapshots (do not commit)
 .playwright-mcp/
 
+# Local language-server / Serena project files
+.serena/
+
 # Local engineering notes — not part of the public product tree
 AGENTS.md
 docs/internal/

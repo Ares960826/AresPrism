@@ -64,6 +64,7 @@ describe("useDocumentStore", () => {
       cursorPosition: 5, // after "Hello"
       selectionRange: null,
       jumpToPosition: null,
+      jumpToFileId: null,
       isThreadOpen: false,
       pdfRevision: 0,
       compileError: null,

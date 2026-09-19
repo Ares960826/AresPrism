@@ -279,6 +279,16 @@ export function LatexSettings() {
   const setDefaultEngine = useSettingsStore((s) => s.setDefaultEngine);
   const vimMode = useSettingsStore((s) => s.vimMode);
   const setVimMode = useSettingsStore((s) => s.setVimMode);
+  const synctexFollowCursor = useSettingsStore((s) => s.synctexFollowCursor);
+  const setSynctexFollowCursor = useSettingsStore(
+    (s) => s.setSynctexFollowCursor,
+  );
+  const synctexDblClickLocate = useSettingsStore(
+    (s) => s.synctexDblClickLocate,
+  );
+  const setSynctexDblClickLocate = useSettingsStore(
+    (s) => s.setSynctexDblClickLocate,
+  );
   const citationFile = useSettingsStore((s) => s.citationFile);
   const setCitationFile = useSettingsStore((s) => s.setCitationFile);
   const compileDocumentsByProject = useSettingsStore(
@@ -450,6 +460,66 @@ export function LatexSettings() {
             </p>
           </div>
         )}
+      </Field>
+      <Field label="SyncTeX">
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={synctexFollowCursor}
+            className="flex h-8 w-full items-center justify-between rounded-md border border-border px-2.5 text-xs"
+            onClick={() => setSynctexFollowCursor(!synctexFollowCursor)}
+          >
+            <span>Follow cursor</span>
+            <span
+              className={cn(
+                "relative h-5 w-9 rounded-full transition-colors",
+                synctexFollowCursor
+                  ? "bg-foreground"
+                  : "bg-muted-foreground/30",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 size-4 rounded-full bg-background transition-transform",
+                  synctexFollowCursor
+                    ? "translate-x-[18px]"
+                    : "translate-x-0.5",
+                )}
+              />
+            </span>
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={synctexDblClickLocate}
+            className="flex h-8 w-full items-center justify-between rounded-md border border-border px-2.5 text-xs"
+            onClick={() => setSynctexDblClickLocate(!synctexDblClickLocate)}
+          >
+            <span>Double-click to locate</span>
+            <span
+              className={cn(
+                "relative h-5 w-9 rounded-full transition-colors",
+                synctexDblClickLocate
+                  ? "bg-foreground"
+                  : "bg-muted-foreground/30",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 size-4 rounded-full bg-background transition-transform",
+                  synctexDblClickLocate
+                    ? "translate-x-[18px]"
+                    : "translate-x-0.5",
+                )}
+              />
+            </span>
+          </button>
+          <p className="text-[11px] text-muted-foreground">
+            PDF click jumps to the matching source file. Double-click a word in
+            the editor to flash the line, then the word.
+          </p>
+        </div>
       </Field>
       <Field label="Editor">
         <button

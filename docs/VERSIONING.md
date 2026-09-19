@@ -18,6 +18,7 @@ AresPrism uses its own SemVer. It does not continue ClaudePrism’s 1.x numbers.
 | **0.8.0** | Business Source License 1.1; 护眼 renamed 察尔汗盐湖 |
 | **0.9.0** | Filled macOS icon, Home gallery PDF + list, in-app GitHub updates |
 | **0.9.1** | Home is list-only; gallery and project previews removed |
+| **0.10.0** | Cross-file SyncTeX; jj/Git version modes (lock + 50 auto snapshots) |
 | 0.x.y | Ongoing work. Patch `y` for fixes; minor `x` for user-visible features |
 | 1.0.0 | When this app is the daily driver for paper writing |
 

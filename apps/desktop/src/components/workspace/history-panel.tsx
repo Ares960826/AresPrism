@@ -2,22 +2,20 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   HistoryIcon,
   LoaderIcon,
-  TagIcon,
   RotateCcwIcon,
-  CopyIcon,
-  PlusIcon,
+  PinIcon,
   XIcon,
 } from "lucide-react";
 import { useHistoryStore, type SnapshotInfo } from "@/stores/history-store";
 import { GitPanel } from "@/components/workspace/git-panel";
 import { useDocumentStore } from "@/stores/document-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -112,7 +110,8 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
     return result;
   }, [snapshots]);
 
-  const [tab, setTab] = useState<"snapshots" | "git">("git");
+  const tab = useSettingsStore((s) => s.versionHistoryTab);
+  const setTab = useSettingsStore((s) => s.setVersionHistoryTab);
   const [labelDialogOpen, setLabelDialogOpen] = useState(false);
   const [labelTargetId, setLabelTargetId] = useState<string | null>(null);
   const [labelValue, setLabelValue] = useState("");
@@ -169,8 +168,8 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
   );
 
   const handleAddLabel = useCallback(async () => {
-    const label = labelValue.trim();
-    if (!label || !labelTargetId || !projectRoot) return;
+    if (!labelTargetId || !projectRoot) return;
+    const label = labelValue.trim() || `locked-${labelTargetId.slice(0, 8)}`;
     await addLabel(projectRoot, labelTargetId, label);
     setLabelDialogOpen(false);
     setLabelValue("");
@@ -206,21 +205,21 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
             type="button"
             className={cn(
               "rounded px-2 py-0.5 text-[11px]",
-              tab === "git" ? "bg-accent" : "text-muted-foreground",
+              tab === "jj" ? "bg-accent" : "text-muted-foreground",
             )}
-            onClick={() => setTab("git")}
+            onClick={() => setTab("jj")}
           >
-            Git
+            jj
           </button>
           <button
             type="button"
             className={cn(
               "rounded px-2 py-0.5 text-[11px]",
-              tab === "snapshots" ? "bg-accent" : "text-muted-foreground",
+              tab === "git" ? "bg-accent" : "text-muted-foreground",
             )}
-            onClick={() => setTab("snapshots")}
+            onClick={() => setTab("git")}
           >
-            Snapshots
+            Git
           </button>
         </div>
       </div>
@@ -236,7 +235,8 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
         >
           {linearSnapshots.length === 0 && !isLoading ? (
             <div className="px-3 py-4 text-center text-muted-foreground text-xs">
-              No history yet
+              Versions appear automatically as you edit. Lock important ones to
+              keep them.
             </div>
           ) : (
             <div className="py-0.5">
@@ -252,7 +252,6 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
                   onRemoveLabel={(label) =>
                     projectRoot && removeLabel(projectRoot, label)
                   }
-                  onCopySha={() => navigator.clipboard.writeText(snap.id)}
                 />
               ))}
             </div>
@@ -270,11 +269,11 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
       <Dialog open={labelDialogOpen} onOpenChange={setLabelDialogOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Add Label</DialogTitle>
+            <DialogTitle>Lock this version</DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Input
-              placeholder="e.g. Draft v1"
+              placeholder="Optional name, e.g. submission draft"
               value={labelValue}
               onChange={(e) => setLabelValue(e.target.value)}
               onKeyDown={(e) => {
@@ -287,9 +286,7 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
             <Button variant="outline" onClick={() => setLabelDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddLabel} disabled={!labelValue.trim()}>
-              Add
-            </Button>
+            <Button onClick={handleAddLabel}>Lock</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -307,7 +304,6 @@ function SnapshotRow({
   onRestore,
   onAddLabel,
   onRemoveLabel,
-  onCopySha,
 }: {
   snapshot: SnapshotInfo;
   isSelected: boolean;
@@ -316,7 +312,6 @@ function SnapshotRow({
   onRestore: () => void;
   onAddLabel: () => void;
   onRemoveLabel: (label: string) => void;
-  onCopySha: () => void;
 }) {
   const hasFiles = snapshot.changed_files.length > 0;
 
@@ -353,7 +348,7 @@ function SnapshotRow({
                     key={label}
                     className="inline-flex items-center gap-0.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
                   >
-                    <TagIcon className="size-2" />
+                    <PinIcon className="size-2" />
                     {label}
                     <button
                       aria-label={`Remove label ${label}`}
@@ -387,13 +382,8 @@ function SnapshotRow({
           Restore this version
         </ContextMenuItem>
         <ContextMenuItem onClick={onAddLabel}>
-          <PlusIcon className="mr-2 size-3.5" />
-          Add label
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={onCopySha}>
-          <CopyIcon className="mr-2 size-3.5" />
-          Copy SHA
+          <PinIcon className="mr-2 size-3.5" />
+          Lock this version
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
