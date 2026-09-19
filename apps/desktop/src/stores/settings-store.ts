@@ -12,7 +12,6 @@ import type { CompileDocument } from "@/lib/compile-documents";
 export type { AgentKind };
 export type CompilerBackend = "tectonic" | "texlive" | "latexmk";
 export type TexEnginePref = "auto" | "pdflatex" | "xelatex" | "lualatex";
-export type HomeProjectView = "gallery" | "list";
 
 interface SettingsState {
   compilerBackend: CompilerBackend;
@@ -42,8 +41,6 @@ interface SettingsState {
   setAgentModel: (kind: AgentKind, model: string) => void;
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
-  homeProjectView: HomeProjectView;
-  setHomeProjectView: (view: HomeProjectView) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -82,8 +79,6 @@ export const useSettingsStore = create<SettingsState>()(
         })),
       settingsOpen: false,
       setSettingsOpen: (open) => set({ settingsOpen: open }),
-      homeProjectView: "gallery",
-      setHomeProjectView: (view) => set({ homeProjectView: view }),
     }),
     {
       name: STORAGE_KEYS.settings,
@@ -99,7 +94,6 @@ export const useSettingsStore = create<SettingsState>()(
         compileDocumentsByProject: state.compileDocumentsByProject,
         agentKind: state.agentKind,
         agentModels: state.agentModels,
-        homeProjectView: state.homeProjectView,
       }),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<SettingsState>;
@@ -124,8 +118,6 @@ export const useSettingsStore = create<SettingsState>()(
             ...agentModels,
           },
           compileDocumentsByProject,
-          homeProjectView:
-            saved.homeProjectView === "list" ? "list" : "gallery",
         };
       },
     },

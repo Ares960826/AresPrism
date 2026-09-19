@@ -11,7 +11,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readDir, readFile, readTextFile, stat } from "@tauri-apps/plugin-fs";
 import { toast } from "sonner";
 import {
   FolderOpenIcon,
@@ -33,8 +32,6 @@ import {
   MonitorIcon,
   MoonIcon,
   SunIcon,
-  LayoutGridIcon,
-  ListIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -42,13 +39,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { useClaudeSetupStore } from "@/stores/claude-setup-store";
 import { useUvSetupStore } from "@/stores/uv-setup-store";
-import { useSettingsStore } from "@/stores/settings-store";
-import { compileLatex } from "@/lib/latex-compiler";
-import { isLikelyMainTex } from "@/lib/compile-documents";
-import { previewPdfCandidates } from "@/lib/project-preview-paths";
 import { APP_NAME, APP_REPO_URL } from "@/lib/app-identity";
-import { getMupdfClient } from "@/lib/mupdf/mupdf-client";
-import { exists, join } from "@/lib/tauri/fs";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -87,23 +78,6 @@ type RecentProject = {
   lastOpened: number;
 };
 
-type ProjectPreviewData = {
-  createdAt: number | null;
-} & (
-  | { kind: "pdf"; url: string }
-  | { kind: "tex"; fileName: string; lines: string[] }
-  | { kind: "empty" }
-);
-
-type ProjectPreviewState =
-  | { status: "loading" }
-  | { status: "ready"; data: ProjectPreviewData }
-  | { status: "error" };
-
-const projectPreviewCache = new Map<string, ProjectPreviewData>();
-const projectPreviewRequests = new Map<string, Promise<ProjectPreviewData>>();
-let projectPreviewCompileQueue: Promise<void> = Promise.resolve();
-
 export function ProjectPicker() {
   const [showModeDialog, setShowModeDialog] = useState(false);
   const [wizardMode, setWizardMode] = useState<CreationMode | null>(null);
@@ -122,8 +96,6 @@ export function ProjectPicker() {
   const searchShortcutLabel = "⌘ K";
 
   const recentProjects = useProjectStore((s) => s.recentProjects);
-  const homeProjectView = useSettingsStore((s) => s.homeProjectView);
-  const setHomeProjectView = useSettingsStore((s) => s.setHomeProjectView);
   const addRecentProject = useProjectStore((s) => s.addRecentProject);
   const removeRecentProject = useProjectStore((s) => s.removeRecentProject);
   const openProject = useDocumentStore((s) => s.openProject);
@@ -383,34 +355,6 @@ export function ProjectPicker() {
                 </kbd>
               </div>
 
-              <div className="flex shrink-0 items-center rounded-lg border border-border/70 p-0.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "size-8",
-                    homeProjectView === "gallery" && "bg-muted",
-                  )}
-                  title="Gallery"
-                  onClick={() => setHomeProjectView("gallery")}
-                >
-                  <LayoutGridIcon className="size-3.5" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "size-8",
-                    homeProjectView === "list" && "bg-muted",
-                  )}
-                  title="List"
-                  onClick={() => setHomeProjectView("list")}
-                >
-                  <ListIcon className="size-3.5" />
-                </Button>
-              </div>
               <Button
                 onClick={handleOpenFolder}
                 variant="secondary"
@@ -513,17 +457,10 @@ export function ProjectPicker() {
                   </div>
                 </div>
               ) : (
-                <div
-                  className={
-                    homeProjectView === "list"
-                      ? "flex flex-col gap-2"
-                      : "grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-6 gap-y-6"
-                  }
-                >
+                <div className="flex flex-col gap-2">
                   {visibleProjects.map((project) => (
-                    <ProjectPreviewCard
+                    <ProjectListRow
                       key={project.path}
-                      layout={homeProjectView}
                       project={project}
                       onOpen={() => handleOpenRecent(project.path)}
                       onRemove={() => setRemoveProjectTarget(project)}
@@ -627,454 +564,49 @@ interface SkillsStatus {
   location: string;
 }
 
-function projectPreviewCacheKey(project: RecentProject) {
-  return `${project.path}:${project.lastOpened}`;
-}
-
-function enqueueProjectPreviewCompile<T>(task: () => Promise<T>): Promise<T> {
-  const run = projectPreviewCompileQueue.then(task, task);
-  projectPreviewCompileQueue = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
-
-async function firstExistingProjectFile(
-  projectPath: string,
-  candidates: string[][],
-): Promise<{ absolutePath: string; relativePath: string } | null> {
-  for (const segments of candidates) {
-    const absolutePath = await join(projectPath, ...segments);
-    if (await exists(absolutePath)) {
-      return {
-        absolutePath,
-        relativePath: segments.join("/"),
-      };
-    }
-  }
-  return null;
-}
-
-async function firstExistingPath(
-  projectPath: string,
-  candidates: string[][],
-): Promise<string | null> {
-  return (
-    (await firstExistingProjectFile(projectPath, candidates))?.absolutePath ??
-    null
-  );
-}
-
-async function renderPdfThumbnailFromBytes(bytes: Uint8Array): Promise<string> {
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  const client = getMupdfClient();
-  let docId: number | null = null;
-
-  try {
-    docId = await client.openDocument(buffer);
-    const pngBuffer = await client.renderThumbnail(docId, 0, 420);
-    const blob = new Blob([new Uint8Array(pngBuffer)], { type: "image/png" });
-    return URL.createObjectURL(blob);
-  } finally {
-    if (docId !== null) {
-      await client.closeDocument(docId).catch(() => {});
-    }
-  }
-}
-
-async function renderPdfThumbnail(pdfPath: string): Promise<string> {
-  return renderPdfThumbnailFromBytes(await readFile(pdfPath));
-}
-
-function texPreviewLines(content: string) {
-  return content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .slice(0, 12)
-    .map((line) => (line.length > 70 ? `${line.slice(0, 67)}...` : line));
-}
-
-function statDateToMs(value: unknown): number | null {
-  if (!value) return null;
-  if (value instanceof Date) {
-    const time = value.getTime();
-    return Number.isFinite(time) ? time : null;
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value) || value <= 0) return null;
-    return value < 1_000_000_000_000 ? value * 1000 : value;
-  }
-  if (typeof value === "string") {
-    const time = Date.parse(value);
-    return Number.isFinite(time) ? time : null;
-  }
-  return null;
-}
-
-async function getProjectCreatedAt(
-  projectPath: string,
-): Promise<number | null> {
-  try {
-    const info = (await stat(projectPath)) as {
-      birthtime?: unknown;
-      ctime?: unknown;
-      mtime?: unknown;
-    };
-    return (
-      statDateToMs(info.birthtime) ??
-      statDateToMs(info.ctime) ??
-      statDateToMs(info.mtime)
-    );
-  } catch {
-    return null;
-  }
-}
-
-function formatProjectCreatedDate(createdAt: number | null) {
-  if (!createdAt) return "";
+function formatOpenedDate(lastOpened: number) {
+  if (!lastOpened) return "";
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
-  }).format(new Date(createdAt));
+  }).format(new Date(lastOpened));
 }
 
-async function listRootTexFiles(
-  projectPath: string,
-): Promise<{ relativePath: string; absolutePath: string }[]> {
-  try {
-    const entries = await readDir(projectPath);
-    const files = [];
-    for (const entry of entries) {
-      if (entry.isDirectory || !entry.name.toLowerCase().endsWith(".tex")) {
-        continue;
-      }
-      files.push({
-        relativePath: entry.name,
-        absolutePath: await join(projectPath, entry.name),
-      });
-    }
-    return files;
-  } catch {
-    return [];
-  }
-}
-
-async function discoverProjectMains(projectPath: string): Promise<string[]> {
-  const stored =
-    useSettingsStore.getState().compileDocumentsByProject[projectPath] ?? [];
-  const storedMains = stored
-    .map((doc) => doc.mainFile)
-    .filter((path) => path.trim().length > 0);
-  if (storedMains.length > 0) return storedMains;
-
-  const rootTex = await listRootTexFiles(projectPath);
-  const mains: string[] = [];
-  for (const file of rootTex) {
-    try {
-      const content = await readTextFile(file.absolutePath);
-      if (
-        isLikelyMainTex({
-          type: "tex",
-          name: file.relativePath,
-          relativePath: file.relativePath,
-          content,
-        })
-      ) {
-        mains.push(file.relativePath);
-      }
-    } catch {
-      /* skip unreadable tex */
-    }
-  }
-  if (mains.length > 0) return mains;
-  const fallback = await firstExistingProjectFile(projectPath, [
-    ["main.tex"],
-    ["document.tex"],
-  ]);
-  return fallback ? [fallback.relativePath] : [];
-}
-
-async function findBuiltPdf(
-  projectPath: string,
-  mains: string[],
-): Promise<string | null> {
-  const fromCandidates = await firstExistingPath(
-    projectPath,
-    previewPdfCandidates(mains).map((rel) => rel.split("/")),
-  );
-  if (fromCandidates) return fromCandidates;
-
-  const buildRoot = await join(projectPath, ".prism", "build");
-  if (!(await exists(buildRoot))) return null;
-  try {
-    const entries = await readDir(buildRoot);
-    for (const entry of entries) {
-      if (entry.isDirectory) {
-        const nested = await join(buildRoot, entry.name, `${entry.name}.pdf`);
-        if (await exists(nested)) return nested;
-        continue;
-      }
-      if (entry.name.toLowerCase().endsWith(".pdf")) {
-        return await join(buildRoot, entry.name);
-      }
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-async function loadProjectPreview(
-  project: RecentProject,
-): Promise<ProjectPreviewData> {
-  const cacheKey = projectPreviewCacheKey(project);
-  const cached = projectPreviewCache.get(cacheKey);
-  if (cached) return cached;
-
-  const pending = projectPreviewRequests.get(cacheKey);
-  if (pending) return pending;
-
-  const promise = (async () => {
-    const createdAt = await getProjectCreatedAt(project.path);
-    const mains = await discoverProjectMains(project.path);
-    const pdfPath = await findBuiltPdf(project.path, mains);
-
-    if (pdfPath) {
-      const data: ProjectPreviewData = {
-        kind: "pdf",
-        url: await renderPdfThumbnail(pdfPath),
-        createdAt,
-      };
-      projectPreviewCache.set(cacheKey, data);
-      return data;
-    }
-
-    const texRelative = mains[0];
-    const texFile = texRelative
-      ? {
-          relativePath: texRelative,
-          absolutePath: await join(project.path, ...texRelative.split("/")),
-        }
-      : await firstExistingProjectFile(project.path, [
-          ["main.tex"],
-          ["document.tex"],
-        ]);
-
-    if (texFile) {
-      try {
-        const settings = useSettingsStore.getState();
-        const pdfBytes = await enqueueProjectPreviewCompile(() =>
-          compileLatex(
-            project.path,
-            texFile.relativePath,
-            settings.compilerBackend,
-            settings.defaultEngine,
-          ),
-        );
-        const data: ProjectPreviewData = {
-          kind: "pdf",
-          url: await renderPdfThumbnailFromBytes(pdfBytes),
-          createdAt,
-        };
-        projectPreviewCache.set(cacheKey, data);
-        return data;
-      } catch (err) {
-        console.warn("Failed to compile project preview:", {
-          path: project.path,
-          target: texFile.relativePath,
-          error: err,
-        });
-      }
-
-      const fileName = texFile.absolutePath.split(/[\\/]/).pop() ?? "main.tex";
-      const data: ProjectPreviewData = {
-        kind: "tex",
-        fileName,
-        lines: texPreviewLines(await readTextFile(texFile.absolutePath)),
-        createdAt,
-      };
-      projectPreviewCache.set(cacheKey, data);
-      return data;
-    }
-
-    const data: ProjectPreviewData = { kind: "empty", createdAt };
-    projectPreviewCache.set(cacheKey, data);
-    return data;
-  })();
-
-  projectPreviewRequests.set(cacheKey, promise);
-  try {
-    return await promise;
-  } finally {
-    projectPreviewRequests.delete(cacheKey);
-  }
-}
-
-function ProjectPreviewCard({
+function ProjectListRow({
   project,
-  layout,
   onOpen,
   onRemove,
 }: {
   project: RecentProject;
-  layout: "gallery" | "list";
   onOpen: () => void;
   onRemove: () => void;
 }) {
-  const [preview, setPreview] = useState<ProjectPreviewState>(() => {
-    const cached = projectPreviewCache.get(projectPreviewCacheKey(project));
-    return cached ? { status: "ready", data: cached } : { status: "loading" };
-  });
-  const createdDateLabel =
-    preview.status === "ready"
-      ? formatProjectCreatedDate(preview.data.createdAt)
-      : "";
-
-  useEffect(() => {
-    let cancelled = false;
-    const cacheKey = projectPreviewCacheKey(project);
-    const cached = projectPreviewCache.get(cacheKey);
-    if (cached) {
-      setPreview({ status: "ready", data: cached });
-      return;
-    }
-
-    setPreview({ status: "loading" });
-    loadProjectPreview(project)
-      .then((data) => {
-        if (!cancelled) setPreview({ status: "ready", data });
-      })
-      .catch((err) => {
-        console.warn("Failed to load project preview:", {
-          path: project.path,
-          error: err,
-        });
-        if (!cancelled) setPreview({ status: "error" });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [project]);
-
-  if (layout === "list") {
-    return (
-      <div className="group flex items-center gap-3 rounded-lg border border-border/70 bg-background px-2 py-2 hover:border-foreground/20">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-3 text-left"
-          onClick={onOpen}
-        >
-          <div className="size-14 shrink-0 overflow-hidden rounded-md border border-border/60 bg-muted/10">
-            <ProjectPreviewSurface
-              preview={preview}
-              projectName={project.name}
-            />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-medium text-sm">{project.name}</div>
-            <div className="mt-0.5 truncate text-muted-foreground text-xs">
-              {[createdDateLabel, project.path].filter(Boolean).join(" · ")}
-            </div>
-          </div>
-        </button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-          onClick={onRemove}
-          aria-label={`Remove ${project.name}`}
-        >
-          <XIcon className="size-3.5" />
-        </Button>
-      </div>
-    );
-  }
-
+  const opened = formatOpenedDate(project.lastOpened);
   return (
-    <div className="group min-w-0">
-      <div className="relative">
-        <button
-          className="relative aspect-[3/4] w-full overflow-hidden rounded-lg border border-border/70 bg-background text-left transition-all duration-200 hover:border-foreground/20 hover:shadow-md"
-          onClick={onOpen}
-        >
-          <ProjectPreviewSurface preview={preview} projectName={project.name} />
-        </button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute top-2 right-2 size-7 bg-background/80 opacity-0 shadow-sm backdrop-blur-sm transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-          onClick={onRemove}
-          aria-label={`Remove ${project.name}`}
-        >
-          <XIcon className="size-3.5" />
-        </Button>
-      </div>
+    <div className="group flex items-center gap-3 rounded-lg border border-border/70 bg-background px-3 py-2.5 hover:border-foreground/20">
       <button
-        className="mt-2 block w-full truncate text-left font-medium text-sm leading-tight hover:underline"
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
         onClick={onOpen}
       >
-        {project.name}
+        <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium text-sm">{project.name}</div>
+          <div className="mt-0.5 truncate text-muted-foreground text-xs">
+            {[opened, project.path].filter(Boolean).join(" · ")}
+          </div>
+        </div>
       </button>
-      <div className="mt-1 h-4 truncate text-left text-muted-foreground text-xs">
-        {createdDateLabel}
-      </div>
-    </div>
-  );
-}
-
-function ProjectPreviewSurface({
-  preview,
-  projectName,
-}: {
-  preview: ProjectPreviewState;
-  projectName: string;
-}) {
-  if (preview.status === "loading") {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-muted/10">
-        <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (preview.status === "ready" && preview.data.kind === "pdf") {
-    return (
-      <img
-        src={preview.data.url}
-        alt={`${projectName} preview`}
-        className="h-full w-full bg-white object-cover object-top"
-      />
-    );
-  }
-
-  if (preview.status === "ready" && preview.data.kind === "tex") {
-    return (
-      <div className="h-full w-full overflow-hidden bg-background">
-        <div className="flex h-7 items-center border-border/60 border-b px-2">
-          <span className="truncate font-mono text-[10px] text-muted-foreground">
-            {preview.data.fileName}
-          </span>
-        </div>
-        <div className="space-y-1 px-2 py-2 font-mono text-[10px] text-muted-foreground">
-          {preview.data.lines.map((line, index) => (
-            <div key={`${index}-${line}`} className="truncate">
-              {line}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center bg-muted/10 text-muted-foreground">
-      <FileTextIcon className="mb-2 size-5" />
-      <span className="text-xs">No preview</span>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+        onClick={onRemove}
+        aria-label={`Remove ${project.name}`}
+      >
+        <XIcon className="size-3.5" />
+      </Button>
     </div>
   );
 }

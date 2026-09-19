@@ -51,7 +51,7 @@ which pdflatex
 3. 左边文件，中间 `.tex`，右边 PDF
 4. **⌘ Enter** 编译，或点预览栏刷新
 
-Home 可用画廊或列表。画廊封面来自主文件编出的 PDF（`.prism/build/`）。
+Home 以列表显示工程。
 
 ## 4. 选择编译器
 

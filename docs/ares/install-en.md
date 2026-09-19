@@ -51,7 +51,7 @@ Later launches can install updates from GitHub inside the app.
 3. Files on the left, `.tex` in the middle, PDF on the right
 4. Compile with **⌘ Enter**, or the preview refresh control
 
-Home has gallery and list views. Gallery covers come from the PDF built for the main file (under `.prism/build/`).
+Home lists projects in a list.
 
 ## 4. Choose a compiler
 
