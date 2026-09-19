@@ -1,6 +1,9 @@
 # Contributing to AresPrism
 
-This guide is the development setup inherited from ClaudePrism / Open Prism. Product lineage and credits: [README.md](./README.md), [CREDITS.md](./CREDITS.md).
+This file is for **people who want to build AresPrism from source**.  
+If you only want to write papers, use the [user guide](docs/ares/user-guide.md) (中文) or [README.md](./README.md).
+
+Product lineage and credits: [CREDITS.md](./CREDITS.md).
 
 ## Development Environment
 
@@ -37,8 +40,8 @@ vcpkg install harfbuzz[graphite2]:x64-windows freetype:x64-windows icu:x64-windo
 ### Setup
 
 ```bash
-git clone https://github.com/delibae/claude-prism.git
-cd claude-prism
+git clone https://github.com/Ares960826/AresPrism.git
+cd AresPrism
 pnpm install
 ```
 
@@ -57,7 +60,7 @@ pnpm build:desktop
 ## Project Structure
 
 ```
-claude-prism/
+AresPrism/
 ├── apps/
 │   └── desktop/              # Tauri desktop app
 │       ├── src/              # React frontend (TypeScript)

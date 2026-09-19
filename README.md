@@ -5,8 +5,8 @@
 <h1 align="center">AresPrism</h1>
 
 <p align="center">
-  A local LaTeX IDE for research papers, notes, and CVs.<br/>
-  Tectonic, TeX Live, and latexmk — live PDF preview and SyncTeX.
+  A local LaTeX IDE for papers, notes, and CVs.<br/>
+  Tectonic, TeX Live, latexmk — live PDF preview and SyncTeX.
 </p>
 
 <p align="center">
@@ -21,65 +21,72 @@
   </a>
 </p>
 
-AresPrism is a **local** desktop LaTeX IDE. It is built for research papers first; notes and CVs work too. Compile with **Tectonic**, **TeX Live**, or **latexmk**, and preview the PDF live with SyncTeX.
+AresPrism is a **local** desktop LaTeX editor. Files stay on your computer. Compile and preview stay on your computer.
 
-Credits and origin: [CREDITS.md](./CREDITS.md).
+- Full walkthrough (Chinese): **[使用指南](docs/ares/user-guide.md)**
+- Let an AI install it for you: **[agent-install.md](docs/ares/agent-install.md)**
+- Developers: [CONTRIBUTING.md](CONTRIBUTING.md)
 
-## Install (macOS, Apple Silicon)
+## Let an AI install it
 
-1. Download the latest `.dmg` from [Releases](https://github.com/Ares960826/AresPrism/releases).
-2. Drag **AresPrism** into `/Applications`.
-3. It can sit next to official `ClaudePrism.app` (`com.claude-prism.desktop` vs `dev.ares.prism`).
+Paste this to any assistant that can use this Mac:
 
-First launch may need **Right-click → Open** if macOS Gatekeeper blocks the ad-hoc signed build.
+> Read https://github.com/Ares960826/AresPrism/blob/main/docs/ares/agent-install.md and install TeX (if needed) and AresPrism on this Mac, then open the app.
 
-## What AresPrism changes
+## 1. Install TeX (recommended for papers)
 
-- App name **AresPrism**, bundle id `dev.ares.prism`, teal icon
-- Compilers: **Tectonic**, **TeX Live**, **latexmk**
-- Engines: **pdfLaTeX** (default when there is no `% !TEX program`), LuaLaTeX, XeLaTeX
-- MacTeX / TeX Live binary discovery for 2024–2026 and `/Library/TeX/texbin`
-- Upstream auto-update **disabled** (this app must never install official ClaudePrism builds)
-- Default projects folder: `~/Documents/AresPrism`
+AresPrism ships **Tectonic**. Simple notes can skip this step. IEEE / school templates / Chinese XeLaTeX need **MacTeX**.
 
-Inherited from ClaudePrism: CodeMirror editor, MuPDF preview, SyncTeX, Git snapshots, Zotero, optional Claude chat, templates.
-
-## Develop
+Check:
 
 ```bash
-pnpm install
-pnpm dev:desktop      # Tauri dev
-pnpm build:desktop    # production .app + .dmg
+which pdflatex xelatex lualatex latexmk
 ```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Versioning: [docs/VERSIONING.md](./docs/VERSIONING.md).
+If that prints `/Library/TeX/texbin/pdflatex`, skip to step 2.
 
-macOS Tectonic builds on this tree expect Homebrew ICU/HarfBuzz; `pnpm dev:desktop` / `pnpm build:desktop` set `PKG_CONFIG_PATH`, `CPATH`, and `CXXFLAGS=-std=c++17`.
+Install either from <https://www.tug.org/mactex/> or:
 
-## Version
-
-Current release: **0.9.0**. The first independent build was 0.1.0, based on ClaudePrism **1.3.0**. Changelog: [docs/ares/CHANGELOG.md](./docs/ares/CHANGELOG.md).
-
-## Lineage
-
-```
-OpenAI Prism       cloud product (inspiration only, not our source)
-      │
-Open Prism         assistant-ui / MIT
-      │            https://github.com/assistant-ui/open-prism
-      ▼
-ClaudePrism        delibae / MIT
-      │            https://github.com/delibae/claude-prism
-      ├── continues as ClaudePrism
-      └── AresPrism   this repository
+```bash
+brew install --cask mactex-no-gui
+eval "$(/usr/libexec/path_helper)"
 ```
 
-AresPrism’s author and the people who wrote the inherited Open Prism / ClaudePrism code are listed in [CREDITS.md](./CREDITS.md). Please do not treat the GitHub “Contributors” graph as that full list.
+## 2. Install AresPrism (macOS Apple Silicon)
+
+1. Download the `.dmg` from [Releases](https://github.com/Ares960826/AresPrism/releases/latest)
+2. Drag **AresPrism** into `/Applications`
+3. First launch: Finder → **Right-click → Open** (Gatekeeper)
+
+It can sit next to official `ClaudePrism.app`. Do not replace that app.
+
+Later versions can be installed from inside the app when GitHub has a new release.
+
+## 3. First document
+
+1. Open AresPrism
+2. **New** or **Import** a folder
+3. Default projects dir: `~/Documents/AresPrism`
+4. Compile with **⌘ Enter**, or the refresh control on the preview
+
+**Settings → LaTeX** (or the two menus on the preview bar):
+
+| Compiler | Use when |
+|---|---|
+| Tectonic | Simple English docs, no MacTeX |
+| TeX Live | MacTeX installed; IEEE / templates / Chinese |
+| latexmk | MacTeX installed; bibliographies, multi-pass |
+
+Engine: **pdfLaTeX** unless the file has `% !TEX program = …`. Use **XeLaTeX** for `fontspec` / many Chinese setups.
+
+## 4. Optional AI
+
+Writing works without AI. If you already use Claude Code, Codex, Grok, or Kimi on this machine, pick them in the chat or **Settings → Provider**. AresPrism does not replace those CLIs’ own login.
 
 ## License
 
-AresPrism **0.8.0 and later** is under the [Business Source License 1.1](./LICENSE). You may use it to write papers and notes, including in production. You may not offer a competing desktop LaTeX IDE based on it without a commercial license from Ares. On **2029-09-19** (or four years after a given version is published, whichever is first), that version becomes Apache-2.0.
+From **0.8.0**, AresPrism is [Business Source License 1.1](./LICENSE). You may use it to write papers and notes. You may not ship a competing desktop LaTeX IDE from this tree without a commercial license. On **2029-09-19** (or four years after a given version is published, whichever is first), that version becomes Apache-2.0.
 
-Portions from Open Prism (assistant-ui) and ClaudePrism (delibae) remain under [MIT](./LICENSES/MIT.txt). Those copyright notices must be preserved.
+Upstream Open Prism / ClaudePrism portions stay [MIT](./LICENSES/MIT.txt). Tags **v0.1.0–v0.7.1** remain MIT.
 
-Git tags **v0.1.0–v0.7.1** were published under MIT and remain available under MIT.
+Credits: [CREDITS.md](./CREDITS.md). Changelog: [docs/ares/CHANGELOG.md](./docs/ares/CHANGELOG.md).

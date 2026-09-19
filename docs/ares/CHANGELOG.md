@@ -9,6 +9,7 @@
 - Home 画廊会去 `.prism/build/<主文件>/` 找对应 PDF 做封面；并增加列表视图
 - 设置 → Environment → Skills 里 Imported Skills 置顶
 - GitHub 有新版本时软件内提醒，可一键下载安装（只跟 AresPrism 自己的 Release，不跟上游）
+- GitHub 首页改为用户安装说明（从 TeX 到第一次编译）；开发说明改到 CONTRIBUTING.md；可用一句话让 AI 代装
 
 ## 0.8.0 — 2026-09-19
 

@@ -1,0 +1,6 @@
+# AresPrism
+
+Local desktop LaTeX IDE. Human guide (Chinese): docs/ares/user-guide.md
+Install on a Mac for the user: follow docs/ares/agent-install.md exactly.
+Do not overwrite /Applications/ClaudePrism.app. Do not build from source unless asked.
+GitHub: https://github.com/Ares960826/AresPrism
