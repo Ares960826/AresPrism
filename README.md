@@ -93,13 +93,10 @@ Guided setup or a blank `.tex`. IEEE / ACM / thesis templates included.
 
 ### Optional AI agents
 
-Claude Code, Codex, Grok, or Kimi — only if that CLI is already signed in. Appearance, Python/uv, and skills stay in Settings.
+**Settings → Provider**: pick a local CLI already signed in on this Mac — Claude Code, Codex, Grok, or Kimi.
 
 <p align="center">
-  <img src="./docs/ares/screenshots/settings.jpg" alt="Appearance settings" width="700" />
-</p>
-<p align="center">
-  <img src="./docs/ares/screenshots/settings-environment.jpg" alt="Environment settings" width="700" />
+  <img src="./docs/ares/screenshots/settings-provider.jpg" alt="Provider settings: local CLI agents" width="800" />
 </p>
 
 ## Install and deploy

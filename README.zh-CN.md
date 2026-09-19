@@ -93,13 +93,10 @@ CodeMirror 6、MuPDF、SyncTeX。**⌘ Enter** 编译。预览栏可选 TeX Live
 
 ### 可选 AI Agent
 
-本机已登录的 Claude Code、Codex、Grok 或 Kimi 可接到聊天里。外观、Python/uv、skills 在设置中。
+**设置 → Provider**：选用本机已登录的 CLI — Claude Code、Codex、Grok 或 Kimi。
 
 <p align="center">
-  <img src="./docs/ares/screenshots/settings.jpg" alt="外观设置" width="700" />
-</p>
-<p align="center">
-  <img src="./docs/ares/screenshots/settings-environment.jpg" alt="环境设置" width="700" />
+  <img src="./docs/ares/screenshots/settings-provider.jpg" alt="Provider 设置：本机 CLI Agent" width="800" />
 </p>
 
 ## 安装与部署

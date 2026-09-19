@@ -93,13 +93,10 @@ CodeMirror 6, MuPDF, SyncTeX. **⌘ Enter**로 컴파일. 미리보기 막대에
 
 ### 선택적 AI Agent
 
-이미 로그인한 Claude Code, Codex, Grok, Kimi를 채팅에 연결할 수 있습니다.
+**설정 → Provider**: 이 Mac에 이미 로그인한 CLI를 고릅니다 — Claude Code, Codex, Grok, Kimi.
 
 <p align="center">
-  <img src="./docs/ares/screenshots/settings.jpg" alt="모양 설정" width="700" />
-</p>
-<p align="center">
-  <img src="./docs/ares/screenshots/settings-environment.jpg" alt="환경 설정" width="700" />
+  <img src="./docs/ares/screenshots/settings-provider.jpg" alt="Provider 설정: 로컬 CLI Agent" width="800" />
 </p>
 
 ## 설치 및 배포

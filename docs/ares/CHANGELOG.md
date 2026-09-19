@@ -16,6 +16,7 @@
 - Home 去掉项目封面预览和画廊，只保留列表
 - 文档招募 Windows 开发合作者（发布包仍为 macOS Apple Silicon）
 - README 增加与 OpenAI Prism / ClaudePrism 的对比表，以及各页面截图
+- README 的 AI Agent 一段改用 Provider 设置截图
 
 ## 0.9.0 — 2026-09-19
 
