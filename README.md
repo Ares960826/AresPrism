@@ -116,20 +116,6 @@ Build from source: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 The published app is **macOS Apple Silicon** only. We want collaborators who can own **Windows** packaging, TeX Live paths, installers, and testing. Open an [Issue](https://github.com/Ares960826/AresPrism/issues) or a PR.
 
-## Lineage
-
-```
-OpenAI Prism       cloud product (inspiration only)
-      │
-Open Prism         assistant-ui / MIT
-      ▼
-ClaudePrism        delibae / MIT
-      ├── continues as ClaudePrism
-      └── AresPrism   this repository
-```
-
-People who wrote the inherited code: [CREDITS.md](./CREDITS.md).
-
 ## License
 
 From **0.8.0**, [Business Source License 1.1](./LICENSE). Writing papers and notes is allowed. Shipping a competing desktop LaTeX IDE from this tree is not, unless you have a commercial license. On **2029-09-19** (or four years after a given version is published, whichever is first), that version becomes Apache-2.0.
@@ -137,3 +123,14 @@ From **0.8.0**, [Business Source License 1.1](./LICENSE). Writing papers and not
 Upstream Open Prism / ClaudePrism portions stay [MIT](./LICENSES/MIT.txt). Tags **v0.1.0–v0.7.1** remain MIT.
 
 [Changelog](./docs/ares/CHANGELOG.md)
+
+## Acknowledgments
+
+AresPrism comes from this line of work. The people below are the earlier founders and major contributors of the code this product started from.
+
+- [Open Prism](https://github.com/assistant-ui/open-prism) by [assistant-ui](https://github.com/assistant-ui) — first public source in this family; a browser LaTeX workspace (MIT). OpenAI Prism is a separate cloud product and is not the source.
+- [ClaudePrism](https://github.com/delibae/claude-prism) by [Hanjin Bae](https://github.com/delibae) (`delibae`) — took Open Prism into a native desktop app with local compile and Claude. AresPrism started from the ClaudePrism **1.3.0** snapshot (`674e7c7`).
+
+ClaudePrism continues on its own. AresPrism is an independent parallel product, not the official ClaudePrism project.
+
+Full inherited names: [CREDITS.md](./CREDITS.md).

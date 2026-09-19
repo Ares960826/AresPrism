@@ -116,20 +116,6 @@ CodeMirror 6、MuPDF、SyncTeX。**⌘ Enter** 编译。预览栏可选 TeX Live
 
 目前发布包只有 **macOS Apple Silicon**。需要有人一起做 **Windows** 的打包、TeX Live 路径、安装程序和测试。请开 [Issue](https://github.com/Ares960826/AresPrism/issues) 或 PR。
 
-## 来历
-
-```
-OpenAI Prism       云端产品（仅启发品类）
-      │
-Open Prism         assistant-ui / MIT
-      ▼
-ClaudePrism        delibae / MIT
-      ├── 继续作为 ClaudePrism
-      └── AresPrism   本仓库
-```
-
-继承代码的作者见 [CREDITS.md](./CREDITS.md)。
-
 ## 许可
 
 从 **0.8.0** 起为 [Business Source License 1.1](./LICENSE)。写论文、做笔记可以。不能拿本仓库去做竞品桌面 LaTeX IDE。到 **2029-09-19**（或该版本首次发布满四年，以较早者为准）变为 Apache-2.0。
@@ -137,3 +123,14 @@ ClaudePrism        delibae / MIT
 上游部分仍是 [MIT](./LICENSES/MIT.txt)。**v0.1.0–v0.7.1** 标签仍按 MIT。
 
 [变更](./docs/ares/CHANGELOG.md)
+
+## 致谢
+
+AresPrism 的代码血统如下。他们是这一脉的创始人和此前的重要贡献者。
+
+- [Open Prism](https://github.com/assistant-ui/open-prism)，[assistant-ui](https://github.com/assistant-ui) — 这一脉最早的公开源码，浏览器里的 LaTeX 工作区（MIT）。OpenAI Prism 是另一款云端产品，不是源码来源。
+- [ClaudePrism](https://github.com/delibae/claude-prism)，[Hanjin Bae](https://github.com/delibae)（`delibae`）— 把 Open Prism 做成带本地编译和 Claude 的桌面应用。AresPrism 从 ClaudePrism **1.3.0** 快照（`674e7c7`）起步。
+
+ClaudePrism 仍在独立发展。AresPrism 是平行产品，不是官方 ClaudePrism。
+
+完整名单见 [CREDITS.md](./CREDITS.md)。

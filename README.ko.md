@@ -116,20 +116,6 @@ CodeMirror 6, MuPDF, SyncTeX. **⌘ Enter**로 컴파일. 미리보기 막대에
 
 배포본은 지금 **macOS Apple Silicon**만 있습니다. **Windows** 패키징, TeX Live 경로, 설치 프로그램, 테스트를 맡아 줄 협력자를 구합니다. [Issue](https://github.com/Ares960826/AresPrism/issues) 또는 PR.
 
-## 계보
-
-```
-OpenAI Prism       클라우드 제품 (영감만)
-      │
-Open Prism         assistant-ui / MIT
-      ▼
-ClaudePrism        delibae / MIT
-      ├── ClaudePrism으로 계속
-      └── AresPrism   이 저장소
-```
-
-상속 코드 작성자: [CREDITS.md](./CREDITS.md).
-
 ## 라이선스
 
 **0.8.0**부터 [Business Source License 1.1](./LICENSE). 논문과 노트 작성은 허용됩니다.
@@ -137,3 +123,14 @@ ClaudePrism        delibae / MIT
 업스트림은 [MIT](./LICENSES/MIT.txt). **v0.1.0–v0.7.1** 태그는 MIT입니다.
 
 [Changelog](./docs/ares/CHANGELOG.md)
+
+## 감사의 글
+
+AresPrism의 코드 계보는 아래와 같습니다. 이들은 이 계열의 창업자와 이전의 주요 기여자입니다.
+
+- [Open Prism](https://github.com/assistant-ui/open-prism), [assistant-ui](https://github.com/assistant-ui) — 이 계열의 첫 공개 소스, 브라우저 LaTeX 작업 공간 (MIT). OpenAI Prism은 별도 클라우드 제품이며 소스가 아닙니다.
+- [ClaudePrism](https://github.com/delibae/claude-prism), [Hanjin Bae](https://github.com/delibae) (`delibae`) — Open Prism을 로컬 컴파일과 Claude가 있는 네이티브 데스크톱 앱으로 만들었습니다. AresPrism은 ClaudePrism **1.3.0** 스냅샷(`674e7c7`)에서 시작합니다.
+
+ClaudePrism은 따로 계속됩니다. AresPrism은 공식 ClaudePrism이 아닌 병렬 제품입니다.
+
+전체 이름: [CREDITS.md](./CREDITS.md).
