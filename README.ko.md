@@ -72,4 +72,8 @@ AresPrism 작성자와 Open Prism / ClaudePrism에서 상속한 코드를 작성
 
 ## 라이선스
 
-[MIT](./LICENSE). Copyright (c) 2025 assistant-ui, 2026 delibae, 2026 Ares.
+AresPrism **0.8.0 and later** is under the [Business Source License 1.1](./LICENSE). Personal and research use of the app is allowed. Offering a competing desktop LaTeX IDE requires a commercial license from Ares. On **2029-09-19** (or four years after a given version is published, whichever is first), that version becomes Apache-2.0.
+
+Portions from Open Prism (assistant-ui) and ClaudePrism (delibae) remain under [MIT](./LICENSES/MIT.txt).
+
+Git tags **v0.1.0–v0.7.1** remain MIT.

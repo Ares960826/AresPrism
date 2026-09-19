@@ -115,7 +115,7 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-/* Quiver 护眼 (豆沙绿). Opaque approximation — this app is not HUD glass. */
+/* 察尔汗盐湖. Opaque approximation — this app is not HUD glass. */
 .warm {
   --background: #cfeac8;
   --foreground: #1f2a1c;
@@ -234,7 +234,7 @@
   color: var(--foreground);
 }
 
-/* PDF page paper follows Light / Dark / 护眼. Text selection stays on top. */
+/* PDF page paper follows Light / Dark / 察尔汗盐湖. Text selection stays on top. */
 .dark .mupdf-page > canvas {
   filter: invert(1) hue-rotate(180deg);
 }

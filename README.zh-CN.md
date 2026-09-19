@@ -66,4 +66,8 @@ AresPrism 作者以及 Open Prism / ClaudePrism 继承代码的作者写在 [CRE
 
 ## 许可证
 
-[MIT](./LICENSE)。Copyright (c) 2025 assistant-ui、2026 delibae、2026 Ares。
+AresPrism **0.8.0 起**使用 [Business Source License 1.1](./LICENSE)。写论文、做笔记、自己用都可以。不能在未获得 Ares 商业许可的情况下，用本仓库去做竞品桌面 LaTeX IDE。到 **2029-09-19**（或该版本首次发布满四年，以较早者为准），该版本自动变为 Apache-2.0。
+
+来自 Open Prism（assistant-ui）和 ClaudePrism（delibae）的部分仍是 [MIT](./LICENSES/MIT.txt)，版权声明必须保留。
+
+Git 标签 **v0.1.0–v0.7.1** 当时以 MIT 发布，那些标签仍按 MIT 可用。

@@ -9,12 +9,13 @@ AresPrism uses its own SemVer. It does not continue ClaudePrism’s 1.x numbers.
 | **0.2.1** | Zotero items under folders; toolbar overflow menu on every workspace bar |
 | **0.2.2** | Overflow menus keep the original toolbar icons |
 | **0.3.0** | Settings: app/editor fonts and sizes; LaTeX compiler defaults |
-| **0.4.0** | 护眼 theme, floating preview/AI, citation file setting, Git panel |
+| **0.4.0** | 察尔汗盐湖 theme, floating preview/AI, citation file setting, Git panel |
 | **0.5.0** | Local CLI AgentPort: Codex / Grok Build / Kimi Code |
-| **0.6.0** | Chat chrome, CLI models, parallel TeX, 护眼 gutter/PDF |
+| **0.6.0** | Chat chrome, CLI models, parallel TeX, 察尔汗盐湖 gutter/PDF |
 | **0.6.1** | pdfTeX auto-engine, local CLI models/effort, agent icons, Home vs traffic lights |
 | **0.7.0** | Multi main-file settings, live CLI routing, floating AI/preview chrome, new icon |
 | **0.7.1** | Codex stdin, docked chat gutter, settings overflow, optional bib, preview toolbar, traffic lights |
+| **0.8.0** | Business Source License 1.1; 护眼 renamed 察尔汗盐湖 |
 | 0.x.y | Ongoing work. Patch `y` for fixes; minor `x` for user-visible features |
 | 1.0.0 | When this app is the daily driver for paper writing |
 

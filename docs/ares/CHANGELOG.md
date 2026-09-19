@@ -2,6 +2,11 @@
 
 只记本产品相对上一版的差。上游 ClaudePrism 的历史仍在 git 里，不抄到这里。
 
+## 0.8.0 — 2026-09-19
+
+- 产品许可从 MIT 改为 Business Source License 1.1：写论文、自己用可以；不能拿去做竞品桌面 LaTeX IDE。2029-09-19 起该版本自动变为 Apache-2.0。Open Prism / ClaudePrism 部分仍是 MIT。已发布的 v0.1.0–v0.7.1 标签仍按 MIT
+- 主题「护眼」改名为「察尔汗盐湖」
+
 ## 0.7.1 — 2026-09-19
 
 - 关掉 Codex / Grok / Kimi 的 stdin，不再出现红条 “Reading additional input from stdin…”
@@ -34,19 +39,19 @@
 - 聊天去掉继承来的拖拽横条；浮动/关闭放到对话标签栏。高度仍可从顶边拖
 - 本机 CLI 放进 Provider：Codex / Grok / Kimi 有模型和思考档（L/M/H）
 - 文件树右键「在新标签打开」；编辑栏并行编译独立 `\documentclass` 文档；预览用 PDF 标签切换
-- 护眼：行号栏跟主题；PDF 纸色随 Light / Dark / 护眼
+- 察尔汗盐湖：行号栏跟主题；PDF 纸色随 Light / Dark / 察尔汗盐湖
 
 ## 0.5.0 — 2026-09-18
 
 - 聊天可选用本机 CLI：Claude Code、Codex、Grok Build、Kimi Code（设置 → Agent，或聊天选择器）
 - 非 Claude 的输出归一成现有聊天协议；改文件仍走 Proposed Changes
-- 默认仍是 Claude Code。护眼主题保持可选，不是默认
+- 默认仍是 Claude Code。察尔汗盐湖主题保持可选，不是默认
 
 ## 0.4.0 — 2026-09-18
 
 - 应用字号上限 28；工具提示字号跟随应用字体
 - 预览可浮动；AI 默认真嵌入编辑器底部，可浮动且避开编辑区滚动条
-- 增加 Quiver 护眼（豆沙绿）主题
+- 增加察尔汗盐湖主题
 - Zotero 去掉说明文案；引用写入文件可在设置里选（.bib / .bibtex / .json / .ris / .enw）
 - Provider 增加 OpenRouter、硅基流动
 - Versions 面板增加鼠标操作的 Git 工作区（文件列表、diff、commit）

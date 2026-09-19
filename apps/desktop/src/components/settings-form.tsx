@@ -2,11 +2,11 @@ import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  LeafIcon,
   MonitorIcon,
   MoonIcon,
   PlusIcon,
   SunIcon,
+  WavesIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -61,13 +61,13 @@ export function AppearanceSettings() {
   return (
     <div className="space-y-5">
       <Field label="Theme">
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {(
             [
               ["system", "System", MonitorIcon],
               ["light", "Light", SunIcon],
               ["dark", "Dark", MoonIcon],
-              ["warm", "护眼", LeafIcon],
+              ["warm", "察尔汗盐湖", WavesIcon],
             ] as const
           ).map(([value, label, Icon]) => (
             <button

@@ -24,7 +24,7 @@ ClaudePrism           delibae / MIT
         └── AresPrism    (this repository — parallel product)
 ```
 
-Copyright notices: [LICENSE](./LICENSE) (`assistant-ui`, `delibae`, `Ares`).
+Copyright notices: [LICENSE](./LICENSE) (AresPrism, Business Source License 1.1 from 0.8.0) and [LICENSES/MIT.txt](./LICENSES/MIT.txt) (`assistant-ui`, `delibae`, and historical Ares MIT tags).
 
 ## AresPrism
 

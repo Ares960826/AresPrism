@@ -58,7 +58,7 @@ macOS Tectonic builds on this tree expect Homebrew ICU/HarfBuzz; `pnpm dev:deskt
 
 ## Version
 
-Current release: **0.7.1**. The first independent build was 0.1.0, based on ClaudePrism **1.3.0**. Changelog: [docs/ares/CHANGELOG.md](./docs/ares/CHANGELOG.md).
+Current release: **0.8.0**. The first independent build was 0.1.0, based on ClaudePrism **1.3.0**. Changelog: [docs/ares/CHANGELOG.md](./docs/ares/CHANGELOG.md).
 
 ## Lineage
 
@@ -78,4 +78,8 @@ AresPrism’s author and the people who wrote the inherited Open Prism / ClaudeP
 
 ## License
 
-[MIT](./LICENSE). Copyright (c) 2025 assistant-ui, 2026 delibae, 2026 Ares.
+AresPrism **0.8.0 and later** is under the [Business Source License 1.1](./LICENSE). You may use it to write papers and notes, including in production. You may not offer a competing desktop LaTeX IDE based on it without a commercial license from Ares. On **2029-09-19** (or four years after a given version is published, whichever is first), that version becomes Apache-2.0.
+
+Portions from Open Prism (assistant-ui) and ClaudePrism (delibae) remain under [MIT](./LICENSES/MIT.txt). Those copyright notices must be preserved.
+
+Git tags **v0.1.0–v0.7.1** were published under MIT and remain available under MIT.
