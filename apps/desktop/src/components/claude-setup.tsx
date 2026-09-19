@@ -505,12 +505,15 @@ function InstallLogOutput() {
 
 interface ClaudeSetupProps {
   variant?: "default" | "provider-dialog" | "embedded";
+  /** Settings: only API keys, not Claude Code CLI login. */
+  apiKeysOnly?: boolean;
   onSaved?: () => void;
   onCancel?: () => void;
 }
 
 export function ClaudeSetup({
   variant = "default",
+  apiKeysOnly = false,
   onSaved,
   onCancel,
 }: ClaudeSetupProps = {}) {
@@ -1103,17 +1106,20 @@ export function ClaudeSetup({
       openAiCredentials.length,
       isDirectProvider && (providerModel || providerBaseUrl) ? 1 : 0,
     );
-    const includesClaudeProvider =
-      claudeProviderConfigured || !isDirectProvider;
+    const includesClaudeProvider = apiKeysOnly
+      ? false
+      : claudeProviderConfigured || !isDirectProvider;
     const configuredProviderCount =
       openAiProviderCount + (includesClaudeProvider ? 1 : 0);
-    const readyDetail = [
-      `${configuredProviderCount} provider${configuredProviderCount === 1 ? "" : "s"} configured`,
-      version ? `Claude Code ${version}` : null,
-      !isDirectProvider && accountEmail ? accountEmail : null,
-    ]
-      .filter(Boolean)
-      .join(" / ");
+    const readyDetail = apiKeysOnly
+      ? "Passed into Claude Code. Codex, Grok, and Kimi keep their own CLI login."
+      : [
+          `${configuredProviderCount} provider${configuredProviderCount === 1 ? "" : "s"} configured`,
+          version ? `Claude Code ${version}` : null,
+          !isDirectProvider && accountEmail ? accountEmail : null,
+        ]
+          .filter(Boolean)
+          .join(" / ");
     const claudeProviderIconSrc = getProviderIconSrc({ label: "Anthropic" });
 
     if (isEditingProvider) {
@@ -1179,7 +1185,7 @@ export function ClaudeSetup({
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate font-semibold text-sm">
-                AI Providers
+                {apiKeysOnly ? "API keys" : "AI Providers"}
               </span>
               <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
                 {configuredProviderCount}

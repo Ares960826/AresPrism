@@ -10,7 +10,7 @@ export const AGENT_OPTIONS: {
     id: "claude",
     label: "Claude Code",
     binary: "claude",
-    hint: "Existing Claude Code CLI, including OpenAI-compatible providers.",
+    hint: "Local Claude Code CLI. Sign in with the CLI. API keys below are passed into this CLI.",
   },
   {
     id: "codex",

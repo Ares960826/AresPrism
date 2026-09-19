@@ -191,6 +191,15 @@ export function PdfPreview() {
     prevRootRef.current = currentRootFileId;
   }, [currentRootFileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Drop keep-alive viewers whose PDF tab is gone (closed editor root).
+  useEffect(() => {
+    const live = new Set(pdfRoots.map((file) => file.id));
+    setAliveOrder((prev) => {
+      const next = prev.filter((id) => live.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [pdfRoots]);
+
   // Update alive set when active root changes and has PDF data
   useEffect(() => {
     if (!currentRootFileId || !pdfData) return;

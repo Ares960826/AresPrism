@@ -11,6 +11,7 @@ import {
   useDocumentStore,
   getCurrentPdfBytes,
   getCurrentPdfRootId,
+  listPdfRootIds,
   clearPdfBytesCache,
   type ProjectFile,
 } from "@/stores/document-store";
@@ -449,6 +450,62 @@ describe("useDocumentStore", () => {
       const state = useDocumentStore.getState();
       expect(state.openFileIds).toEqual(["main.tex", "supplement.tex"]);
       expect(state.activeFileId).toBe("supplement.tex");
+    });
+
+    it("drops the PDF tab when its independent main file is closed", () => {
+      const main = makeFile({
+        content: "\\documentclass{article}\\begin{document}A\\end{document}",
+      });
+      const supp = makeFile({
+        id: "supplement.tex",
+        name: "supplement.tex",
+        relativePath: "supplement.tex",
+        absolutePath: "/project/supplement.tex",
+        content: "\\documentclass{article}\\begin{document}B\\end{document}",
+      });
+      useDocumentStore.setState({
+        files: [main, supp],
+        openFileIds: ["main.tex", "supplement.tex"],
+        activeFileId: "supplement.tex",
+      });
+      useDocumentStore.getState().setPdfData(new Uint8Array([1]), "main.tex");
+      useDocumentStore
+        .getState()
+        .setPdfData(new Uint8Array([2]), "supplement.tex");
+      expect(listPdfRootIds().sort()).toEqual(["main.tex", "supplement.tex"]);
+
+      useDocumentStore.getState().closeFileTab("supplement.tex");
+
+      expect(useDocumentStore.getState().openFileIds).toEqual(["main.tex"]);
+      expect(useDocumentStore.getState().activeFileId).toBe("main.tex");
+      expect(listPdfRootIds()).toEqual(["main.tex"]);
+      expect(getCurrentPdfRootId()).toBe("main.tex");
+    });
+
+    it("keeps the paper PDF when closing an included section", () => {
+      const main = makeFile({
+        content:
+          "\\documentclass{article}\\begin{document}\\input{ch1}\\end{document}",
+      });
+      const ch1 = makeFile({
+        id: "ch1.tex",
+        name: "ch1.tex",
+        relativePath: "ch1.tex",
+        absolutePath: "/project/ch1.tex",
+        content: "\\section{One}",
+      });
+      useDocumentStore.setState({
+        files: [main, ch1],
+        openFileIds: ["main.tex", "ch1.tex"],
+        activeFileId: "ch1.tex",
+      });
+      useDocumentStore.getState().setPdfData(new Uint8Array([9]), "main.tex");
+
+      useDocumentStore.getState().closeFileTab("ch1.tex");
+
+      expect(useDocumentStore.getState().openFileIds).toEqual(["main.tex"]);
+      expect(listPdfRootIds()).toEqual(["main.tex"]);
+      expect(getCurrentPdfRootId()).toBe("main.tex");
     });
   });
 

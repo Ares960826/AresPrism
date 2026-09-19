@@ -21,6 +21,7 @@ AresPrism uses its own SemVer. It does not continue ClaudePrism’s 1.x numbers.
 | **0.10.0** | Cross-file SyncTeX; jj/Git version modes (lock + 50 auto snapshots) |
 | **0.10.1** | Settings capsule switches and provider radio dots |
 | **0.10.2** | In-app auto and manual updates from GitHub |
+| **0.10.3** | Close PDF tab with its editor main file; split local CLI vs API keys |
 | 0.x.y | Ongoing work. Patch `y` for fixes; minor `x` for user-visible features |
 | 1.0.0 | When this app is the daily driver for paper writing |
 

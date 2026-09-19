@@ -21,7 +21,7 @@ import { ClaudeSetup } from "@/components/claude-setup";
 import { useSettingsStore } from "@/stores/settings-store";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "appearance" | "latex" | "provider" | "updates";
+type SettingsTab = "appearance" | "latex" | "agent" | "updates";
 
 export function SettingsDialog() {
   const open = useSettingsStore((s) => s.settingsOpen);
@@ -49,10 +49,10 @@ export function SettingsDialog() {
               onClick={() => setTab("latex")}
             />
             <TabButton
-              active={tab === "provider"}
+              active={tab === "agent"}
               icon={KeyRoundIcon}
-              label="Provider"
-              onClick={() => setTab("provider")}
+              label="Agent"
+              onClick={() => setTab("agent")}
             />
             <TabButton
               active={tab === "updates"}
@@ -72,7 +72,7 @@ export function SettingsDialog() {
               <div className="space-y-6">
                 <AgentSettings />
                 <div className="border-border border-t pt-4">
-                  <ClaudeSetup variant="embedded" />
+                  <ClaudeSetup variant="embedded" apiKeysOnly />
                 </div>
               </div>
             )}

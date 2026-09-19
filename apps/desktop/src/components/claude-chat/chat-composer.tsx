@@ -1476,7 +1476,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
             <div className="grid grid-cols-[minmax(0,11.5rem)_minmax(0,1fr)]">
               <div className="max-h-80 overflow-y-auto border-border border-r pr-1">
                 <div className="px-2 py-1 font-medium text-muted-foreground text-xs">
-                  Provider
+                  Local CLI
                 </div>
                 {AGENT_OPTIONS.filter(
                   (option) =>
@@ -1563,6 +1563,9 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                   </button>
                 )}
 
+                <div className="mt-2 px-2 py-1 font-medium text-muted-foreground text-xs">
+                  API keys
+                </div>
                 {openAiCredentials.map((credential) => {
                   const active =
                     selectedProviderCredential?.id === credential.id;
@@ -1658,9 +1661,9 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                   <PlusIcon className="size-3.5 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium text-xs">
-                      Add Provider
+                      Add API key
                     </div>
-                    <div className="truncate text-xs">Save another API key</div>
+                    <div className="truncate text-xs">For Claude Code only</div>
                   </div>
                 </button>
               </div>
@@ -1812,9 +1815,10 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
       <Dialog open={providerSetupOpen} onOpenChange={setProviderSetupOpen}>
         <DialogContent className="max-h-[85vh] w-[min(42rem,calc(100vw-2rem))] overflow-y-auto overflow-x-hidden sm:max-w-none">
           <DialogHeader>
-            <DialogTitle>Add AI Provider</DialogTitle>
+            <DialogTitle>Add API key</DialogTitle>
             <DialogDescription>
-              Configure Anthropic or another model provider for this project.
+              This key is passed into Claude Code. Codex, Grok, and Kimi keep
+              their own CLI login and do not use this list.
             </DialogDescription>
           </DialogHeader>
           <ClaudeSetup

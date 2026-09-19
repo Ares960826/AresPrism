@@ -242,9 +242,9 @@ export function AgentSettings() {
           })}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Chat spawns the selected CLI in the project folder, like Claude Code.
-          Auth stays with that CLI. Model and thinking effort are in the chat
-          picker, same as Claude Code.
+          Chat runs this CLI in the project folder. Sign in with that CLI
+          (browser / OAuth). API keys in the section below are only for Claude
+          Code; they do not log you into Codex, Grok, or Kimi.
         </p>
       </Field>
       {agentKind !== "claude" && modelOptions.length > 0 && (

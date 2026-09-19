@@ -662,7 +662,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     if (state.openFileIds.length <= 1) return;
     if (!state.openFileIds.includes(id)) return;
     const openFileIds = state.openFileIds.filter((item) => item !== id);
+    const stillNeedsPdf = openFileIds.some(
+      (fileId) => resolveTexRoot(fileId, state.files) === id,
+    );
     set({ openFileIds });
+    if (_pdfBytesCache.has(id) && !stillNeedsPdf) {
+      get().setPdfData(null, id);
+    }
     if (state.activeFileId === id) {
       get().setActiveFile(openFileIds[openFileIds.length - 1]);
     }
