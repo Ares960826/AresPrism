@@ -1,6 +1,6 @@
 # AresPrism
 
-Local LaTeX editor and compiler. Optional AI agents, simple UI, Git version snapshots.
+Local LaTeX editor and compiler. Local Zotero (zotero.sqlite), optional AI agents, simple UI, Git version snapshots.
 Install on a Mac for the user: follow docs/ares/agent-install.md exactly.
 Human install guides: docs/ares/install-zh.md, docs/ares/install-en.md, docs/ares/install-ko.md
 Do not overwrite /Applications/ClaudePrism.app. Do not build from source unless asked.

@@ -78,7 +78,16 @@ Home 可用画廊或列表。画廊封面来自主文件编出的 PDF（`.prism/
 - 在 PDF 上点文字，编辑器跳到对应位置（SyncTeX）
 - 预览可浮动、铺满或全屏
 
-## 6. 接入 AI Agent（可选）
+## 6. 接入本机 Zotero（可选）
+
+侧栏 **Zotero** 读的是本机 `zotero.sqlite`，不走 zotero.org。本机装过 Zotero 桌面版即可。
+
+1. 打开工程后点侧栏 Zotero
+2. 用默认数据目录，或选 Zotero 的 data 文件夹（里面有 `zotero.sqlite`）
+3. 展开集合看条目；可插入 `\cite{...}`，或把条目/文件夹导入工程的引用文件（`.bib` 等）
+4. 引用写到哪个文件： **设置 → LaTeX → Documents** 里每份主文件可配对一个引用文件，也可以留空
+
+## 7. 接入 AI Agent（可选）
 
 不接 Agent 也能写。若本机已登录下列 CLI，在聊天或 **设置 → Provider** 里选择即可。安装和登录仍走各 CLI 自己的方式。
 
@@ -91,6 +100,6 @@ Home 可用画廊或列表。画廊封面来自主文件编出的 PDF（`.prism/
 
 未登录的 CLI 不会出现在聊天选择器里。
 
-## 7. 版本与更新
+## 8. 版本与更新
 
 打开软件后若有新版本，选 **Download and install**。也可以到 [Releases](https://github.com/Ares960826/AresPrism/releases) 手动下载。工程内的 Git 快照在编辑器的 Versions 面板。

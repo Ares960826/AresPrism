@@ -78,7 +78,16 @@ Home은 갤러리와 목록을 제공합니다. 갤러리 표지는 주 파일 P
 - PDF 텍스트를 클릭하면 편집기로 이동합니다 (SyncTeX)
 - 미리보기는 플로팅, 채우기, 전체 화면이 됩니다
 
-## 6. AI Agent 연결 (선택)
+## 6. 로컬 Zotero 연결 (선택)
+
+사이드바 **Zotero**는 이 Mac의 `zotero.sqlite`를 읽습니다. zotero.org를 쓰지 않습니다. 먼저 Zotero 데스크톱을 설치하세요.
+
+1. 프로젝트를 연 뒤 사이드바에서 Zotero를 누릅니다
+2. 기본 데이터 폴더를 쓰거나 `zotero.sqlite`가 있는 폴더를 고릅니다
+3. 컬렉션을 펼칩니다. `\cite{...}`를 넣거나 항목/폴더를 프로젝트 인용 파일(`.bib` 등)로 가져옵니다
+4. 기록 위치: **설정 → LaTeX → Documents**. 주 파일마다 인용 파일을 둘 수 있고, 비워도 됩니다
+
+## 7. AI Agent 연결 (선택)
 
 Agent 없이도 작성할 수 있습니다. 이 Mac에 이미 로그인한 CLI가 있으면 채팅 또는 **설정 → Provider**에서 고릅니다. 설치와 로그인은 각 CLI를 따릅니다.
 
@@ -91,6 +100,6 @@ Agent 없이도 작성할 수 있습니다. 이 Mac에 이미 로그인한 CLI�
 
 로그인되지 않은 CLI는 채팅 선택기에 나오지 않습니다.
 
-## 7. 업데이트와 버전
+## 8. 업데이트와 버전
 
 새 릴리스가 있으면 앱에서 **Download and install**을 고르거나 [Releases](https://github.com/Ares960826/AresPrism/releases)에서 dmg를 받습니다. 프로젝트 Git 스냅샷은 편집기의 Versions 패널에 있습니다.

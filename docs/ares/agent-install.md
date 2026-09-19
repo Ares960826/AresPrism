@@ -37,7 +37,8 @@ open /Applications/AresPrism.app
 
 4. Do not clone the git repo unless they want to build from source. Building needs Node 22+, pnpm 10+, Rust, and Homebrew `icu4c harfbuzz pkg-config`. That path is `CONTRIBUTING.md`, not this file.
 5. After launch: default projects dir is `~/Documents/AresPrism`. For IEEE / XeLaTeX / school templates, set compiler to **TeX Live** or **latexmk** in Settings → LaTeX. Tectonic is enough for simple English notes.
-6. AI (Claude Code / Codex / Grok / Kimi) is optional. Do not install those CLIs unless the user asked.
-7. License: Business Source License 1.1 from 0.8.0. Personal and research use is allowed. Do not relicense or publish a competing desktop LaTeX IDE from this tree.
+6. Zotero is optional. The app reads local `zotero.sqlite` (not zotero.org). Do not set up Zotero OAuth. If the user already has Zotero desktop, they can connect it from the sidebar after opening a project.
+7. AI (Claude Code / Codex / Grok / Kimi) is optional. Do not install those CLIs unless the user asked.
+8. License: Business Source License 1.1 from 0.8.0. Personal and research use is allowed. Do not relicense or publish a competing desktop LaTeX IDE from this tree.
 
 When done, tell the user AresPrism is in `/Applications` and how to pick TeX Live if they write papers.

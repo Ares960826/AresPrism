@@ -6,7 +6,7 @@
 
 <p align="center">
   로컬 LaTeX 편집·컴파일 도구.<br/>
-  단순한 화면 · 선택적 AI Agent · 버전 관리.
+  단순한 화면 · 로컬 Zotero · 선택적 AI Agent · 버전 관리.
 </p>
 
 <p align="center">
@@ -26,6 +26,7 @@ AresPrism은 컴퓨터에서 직접 편집하고 컴파일하고 미리보는 **
 **잘 하는 일**
 
 - Tectonic, TeX Live, latexmk를 한곳에서, 실시간 PDF와 SyncTeX
+- 이 컴퓨터의 Zotero 라이브러리(`zotero.sqlite`)를 읽음: 컬렉션, `\cite` 삽입, `.bib` 가져오기
 - 이 Mac에 Claude Code / Codex / Grok / Kimi가 있으면 편집기에 연결
 - 작은 인터페이스, Git 스냅샷으로 버전 관리
 

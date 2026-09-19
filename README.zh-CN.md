@@ -6,7 +6,7 @@
 
 <p align="center">
   本地 LaTeX 编辑与编译工具。<br/>
-  界面简单 · 可接入 AI Agent · 自带版本管理。
+  界面简单 · 本机 Zotero · 可接入 AI Agent · 自带版本管理。
 </p>
 
 <p align="center">
@@ -26,6 +26,7 @@ AresPrism 是装在自己电脑上的 LaTeX 工具：写、编、预览都在本
 **它擅长什么**
 
 - Tectonic、TeX Live、latexmk 放在一起，实时 PDF 和 SyncTeX
+- 直接读本机 Zotero 库（`zotero.sqlite`）：集合树、插入 `\cite`、导入 `.bib`
 - 本机已有 Claude Code / Codex / Grok / Kimi 时，可以接到编辑器里
 - 界面克制，工程版本用 Git 快照管理
 

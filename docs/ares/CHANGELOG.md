@@ -10,6 +10,7 @@
 - 设置 → Environment → Skills 里 Imported Skills 置顶
 - GitHub 有新版本时软件内提醒，可一键下载安装（只跟 AresPrism 自己的 Release，不跟上游）
 - GitHub 首页改为产品介绍；安装与部署指南分中 / 英 / 韩；开发说明在 CONTRIBUTING.md；可用一句话让 AI 代装
+- 文档补上本机 Zotero（读 `zotero.sqlite`、插入引用、导入 bib）
 
 ## 0.8.0 — 2026-09-19
 

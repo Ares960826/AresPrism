@@ -78,7 +78,16 @@ Several main files: **Settings → LaTeX → Documents**. The first row is compi
 - Click text in the PDF to jump in the editor (SyncTeX)
 - Preview can float, fill, or go fullscreen
 
-## 6. Connect an AI agent (optional)
+## 6. Connect local Zotero (optional)
+
+The **Zotero** sidebar reads this Mac’s `zotero.sqlite`. It does not use zotero.org. Install the Zotero desktop app first.
+
+1. Open a project and click Zotero in the sidebar
+2. Use the default data folder, or pick the folder that contains `zotero.sqlite`
+3. Expand collections; insert `\cite{...}`, or import an item/folder into the project citation file (`.bib` and similar)
+4. Which file is written: **Settings → LaTeX → Documents** — each main file may have a citation file, or none
+
+## 7. Connect an AI agent (optional)
 
 Writing works without an agent. If a CLI is already signed in on this Mac, pick it in chat or **Settings → Provider**. Install and login stay with that CLI.
 
@@ -91,6 +100,6 @@ Writing works without an agent. If a CLI is already signed in on this Mac, pick 
 
 Unsigned CLIs stay out of the chat picker.
 
-## 7. Updates and versions
+## 8. Updates and versions
 
 When GitHub has a new release, choose **Download and install** in the app, or download a dmg from [Releases](https://github.com/Ares960826/AresPrism/releases). Project Git snapshots live in the editor Versions panel.
