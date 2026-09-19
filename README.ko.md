@@ -40,6 +40,10 @@ AresPrism은 컴퓨터에서 직접 편집하고 컴파일하고 미리보는 **
 
 소스에서 빌드: [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Windows 기여자를 찾습니다
+
+배포본은 지금 **macOS Apple Silicon**만 있습니다. **Windows** 패키징, TeX Live 경로, 설치 프로그램, 테스트를 맡아 줄 협력자를 구합니다. [Issue](https://github.com/Ares960826/AresPrism/issues) 또는 PR을 열어 주세요. 환경은 [CONTRIBUTING.md](CONTRIBUTING.md)입니다.
+
 ## 라이선스
 
 **0.8.0**부터 [Business Source License 1.1](./LICENSE). 논문과 노트 작성은 허용됩니다. 이 저장소로 경쟁 데스크톱 LaTeX IDE를 배포하는 것은 상업 라이선스 없이 할 수 없습니다.

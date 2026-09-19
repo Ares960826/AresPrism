@@ -40,6 +40,10 @@ AresPrism 是装在自己电脑上的 LaTeX 工具：写、编、预览都在本
 
 从源码编译请看 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+## 招募 Windows 开发合作者
+
+目前发布包只有 **macOS Apple Silicon**。需要有人一起做 **Windows** 的打包、TeX Live 路径、安装程序和测试。请开 [Issue](https://github.com/Ares960826/AresPrism/issues) 或 PR，环境见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ## 许可
 
 从 **0.8.0** 起为 [Business Source License 1.1](./LICENSE)。写论文、做笔记可以。不能拿本仓库去做竞品桌面 LaTeX IDE。到 **2029-09-19**（或该版本首次发布满四年，以较早者为准）变为 Apache-2.0。

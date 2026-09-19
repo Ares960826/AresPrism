@@ -40,6 +40,10 @@ AresPrism is a **local** LaTeX tool: you edit, compile, and preview on your own 
 
 Build from source: [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Windows contributors wanted
+
+The published app is **macOS Apple Silicon** only. We want collaborators who can own **Windows** packaging, TeX Live paths, installers, and testing. Open an [Issue](https://github.com/Ares960826/AresPrism/issues) or a PR; setup is in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 From **0.8.0**, [Business Source License 1.1](./LICENSE). Writing papers and notes is allowed. Shipping a competing desktop LaTeX IDE from this tree is not, unless you have a commercial license. On **2029-09-19** (or four years after a given version is published, whichever is first), that version becomes Apache-2.0.

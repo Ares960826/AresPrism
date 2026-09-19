@@ -5,6 +5,10 @@ If you only want to write papers, use the install guides: [中文](docs/ares/ins
 
 Product lineage and credits: [CREDITS.md](./CREDITS.md).
 
+## Windows collaborators
+
+Published releases are macOS Apple Silicon only. **Windows** packaging, TeX Live discovery, NSIS/MSI, and CI are open. If you can own that surface, open an [Issue](https://github.com/Ares960826/AresPrism/issues) or a PR. Windows native setup is below.
+
 ## Development Environment
 
 ### Prerequisites
