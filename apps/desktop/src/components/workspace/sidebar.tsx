@@ -50,6 +50,7 @@ import { cn } from "@/lib/utils";
 import { APP_NAME, APP_REPO_URL } from "@/lib/app-identity";
 import { ZoteroPanel, ZoteroHeader } from "@/components/workspace/zotero-panel";
 import { Button } from "@/components/ui/button";
+import { CapsuleSwitchThumb } from "@/components/ui/capsule-switch";
 import {
   Dialog,
   DialogContent,
@@ -374,19 +375,7 @@ function LayoutToggleRow({
       <span className="min-w-0 flex-1 truncate font-medium text-sm">
         {label}
       </span>
-      <span
-        className={cn(
-          "relative h-5 w-9 shrink-0 rounded-full transition-colors",
-          checked ? "bg-foreground" : "bg-muted-foreground/30",
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-0.5 size-4 rounded-full bg-background transition-transform",
-            checked ? "translate-x-[18px]" : "translate-x-0.5",
-          )}
-        />
-      </span>
+      <CapsuleSwitchThumb checked={checked} />
     </button>
   );
 }

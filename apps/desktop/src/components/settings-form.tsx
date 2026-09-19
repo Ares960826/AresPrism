@@ -32,6 +32,7 @@ import {
   type AgentKind,
 } from "@/lib/agent-kind";
 import { cn } from "@/lib/utils";
+import { CapsuleSwitch, RadioDot } from "@/components/ui/capsule-switch";
 
 const CITATION_NONE = "__none__";
 
@@ -220,14 +221,7 @@ export function AgentSettings() {
                   }
                 }}
               >
-                <span
-                  className={cn(
-                    "mt-0.5 size-3.5 shrink-0 rounded-full border",
-                    selected
-                      ? "border-foreground bg-foreground"
-                      : "border-muted-foreground/40",
-                  )}
-                />
+                <RadioDot selected={selected} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
                     <span className="font-medium text-xs">{option.label}</span>
@@ -463,58 +457,16 @@ export function LatexSettings() {
       </Field>
       <Field label="SyncTeX">
         <div className="space-y-1.5">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={synctexFollowCursor}
-            className="flex h-8 w-full items-center justify-between rounded-md border border-border px-2.5 text-xs"
-            onClick={() => setSynctexFollowCursor(!synctexFollowCursor)}
-          >
-            <span>Follow cursor</span>
-            <span
-              className={cn(
-                "relative h-5 w-9 rounded-full transition-colors",
-                synctexFollowCursor
-                  ? "bg-foreground"
-                  : "bg-muted-foreground/30",
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-0.5 size-4 rounded-full bg-background transition-transform",
-                  synctexFollowCursor
-                    ? "translate-x-[18px]"
-                    : "translate-x-0.5",
-                )}
-              />
-            </span>
-          </button>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={synctexDblClickLocate}
-            className="flex h-8 w-full items-center justify-between rounded-md border border-border px-2.5 text-xs"
-            onClick={() => setSynctexDblClickLocate(!synctexDblClickLocate)}
-          >
-            <span>Double-click to locate</span>
-            <span
-              className={cn(
-                "relative h-5 w-9 rounded-full transition-colors",
-                synctexDblClickLocate
-                  ? "bg-foreground"
-                  : "bg-muted-foreground/30",
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-0.5 size-4 rounded-full bg-background transition-transform",
-                  synctexDblClickLocate
-                    ? "translate-x-[18px]"
-                    : "translate-x-0.5",
-                )}
-              />
-            </span>
-          </button>
+          <CapsuleSwitch
+            checked={synctexFollowCursor}
+            label="Follow cursor"
+            onCheckedChange={setSynctexFollowCursor}
+          />
+          <CapsuleSwitch
+            checked={synctexDblClickLocate}
+            label="Double-click to locate"
+            onCheckedChange={setSynctexDblClickLocate}
+          />
           <p className="text-[11px] text-muted-foreground">
             PDF click jumps to the matching source file. Double-click a word in
             the editor to flash the line, then the word.
@@ -522,28 +474,11 @@ export function LatexSettings() {
         </div>
       </Field>
       <Field label="Editor">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={vimMode}
-          className="flex h-8 w-full items-center justify-between rounded-md border border-border px-2.5 text-xs"
-          onClick={() => setVimMode(!vimMode)}
-        >
-          <span>Vim mode</span>
-          <span
-            className={cn(
-              "relative h-5 w-9 rounded-full transition-colors",
-              vimMode ? "bg-foreground" : "bg-muted-foreground/30",
-            )}
-          >
-            <span
-              className={cn(
-                "absolute top-0.5 size-4 rounded-full bg-background transition-transform",
-                vimMode ? "translate-x-[18px]" : "translate-x-0.5",
-              )}
-            />
-          </span>
-        </button>
+        <CapsuleSwitch
+          checked={vimMode}
+          label="Vim mode"
+          onCheckedChange={setVimMode}
+        />
       </Field>
     </div>
   );
