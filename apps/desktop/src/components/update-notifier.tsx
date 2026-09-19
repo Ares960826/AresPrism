@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { useUpdater } from "@/hooks/use-updater";
+import { useEffect } from "react";
+import { toast } from "sonner";
+import { useUpdaterStore } from "@/stores/updater-store";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,48 +13,68 @@ import {
 import { APP_NAME } from "@/lib/app-identity";
 
 export function UpdateNotifier() {
-  const { status, checkForUpdate, installUpdate } = useUpdater();
-  const [dismissed, setDismissed] = useState(false);
+  const status = useUpdaterStore((s) => s.status);
+  const dismissed = useUpdaterStore((s) => s.dismissed);
+  const lastCheckManual = useUpdaterStore((s) => s.lastCheckManual);
+  const checkForUpdate = useUpdaterStore((s) => s.checkForUpdate);
+  const installUpdate = useUpdaterStore((s) => s.installUpdate);
+  const dismiss = useUpdaterStore((s) => s.dismiss);
 
   useEffect(() => {
-    if (!import.meta.env.PROD) return;
     const timer = window.setTimeout(() => {
       void checkForUpdate({ silent: true });
-    }, 2500);
+    }, 2000);
     return () => window.clearTimeout(timer);
   }, [checkForUpdate]);
 
+  useEffect(() => {
+    if (status.state === "up-to-date" && lastCheckManual) {
+      toast.success("You're on the latest version.");
+    }
+  }, [status, lastCheckManual]);
+
+  const busy =
+    status.state === "downloading" ||
+    status.state === "installing" ||
+    status.state === "ready";
+
   const open =
-    !dismissed &&
-    (status.state === "available" ||
-      status.state === "downloading" ||
-      status.state === "installing" ||
-      status.state === "ready");
+    busy ||
+    (!dismissed && status.state === "available") ||
+    (lastCheckManual && status.state === "error");
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && status.state === "available") setDismissed(true);
+        if (!next && !busy) dismiss();
       }}
     >
-      <DialogContent className="sm:max-w-md" showCloseButton={false}>
+      <DialogContent className="sm:max-w-md" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>
             {status.state === "ready"
               ? "Restarting"
-              : status.state === "installing" || status.state === "downloading"
-                ? "Updating"
-                : "Update available"}
+              : status.state === "installing"
+                ? "Installing"
+                : status.state === "downloading"
+                  ? "Downloading"
+                  : status.state === "error"
+                    ? "Update failed"
+                    : "Update available"}
           </DialogTitle>
           <DialogDescription>
             {status.state === "available"
-              ? `${APP_NAME} ${status.version} is ready to download from GitHub.`
+              ? `${APP_NAME} ${status.version} is on GitHub. Download and install it here.`
               : status.state === "downloading"
                 ? `Downloading… ${status.percent}%`
                 : status.state === "installing"
                   ? "Installing the update."
-                  : "The app will restart."}
+                  : status.state === "ready"
+                    ? "The app will restart."
+                    : status.state === "error"
+                      ? status.message
+                      : "Checking GitHub for a newer build."}
           </DialogDescription>
         </DialogHeader>
         {status.state === "available" && status.notes ? (
@@ -64,7 +85,7 @@ export function UpdateNotifier() {
         {status.state === "downloading" ? (
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full bg-foreground transition-[width]"
+              className="h-full bg-sky-600 transition-[width]"
               style={{ width: `${status.percent}%` }}
             />
           </div>
@@ -72,12 +93,20 @@ export function UpdateNotifier() {
         <DialogFooter>
           {status.state === "available" ? (
             <>
-              <Button variant="outline" onClick={() => setDismissed(true)}>
+              <Button variant="outline" onClick={dismiss}>
                 Later
               </Button>
               <Button onClick={() => void installUpdate()}>
                 Download and install
               </Button>
+            </>
+          ) : null}
+          {status.state === "error" ? (
+            <>
+              <Button variant="outline" onClick={dismiss}>
+                Close
+              </Button>
+              <Button onClick={() => void checkForUpdate()}>Try again</Button>
             </>
           ) : null}
         </DialogFooter>

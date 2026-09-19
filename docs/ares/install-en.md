@@ -102,4 +102,9 @@ Unsigned CLIs stay out of the chat picker.
 
 ## 8. Updates and versions
 
-When GitHub has a new release, choose **Download and install** in the app, or download a dmg from [Releases](https://github.com/Ares960826/AresPrism/releases). Project Git snapshots live in the editor Versions panel.
+On launch the app checks GitHub for a newer build. You can also:
+
+- Use the refresh control next to the version in the left footer
+- **Settings → Updates**, or **Check for updates** on the AresPrism row under **Settings → Environment**
+
+After install the app restarts. A dmg is still on [Releases](https://github.com/Ares960826/AresPrism/releases). Project Git snapshots live in the editor Versions panel.

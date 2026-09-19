@@ -51,6 +51,7 @@ import { APP_NAME, APP_REPO_URL } from "@/lib/app-identity";
 import { ZoteroPanel, ZoteroHeader } from "@/components/workspace/zotero-panel";
 import { Button } from "@/components/ui/button";
 import { CapsuleSwitchThumb } from "@/components/ui/capsule-switch";
+import { UpdateCheckButton } from "@/components/update-controls";
 import {
   Dialog,
   DialogContent,
@@ -1484,6 +1485,7 @@ export function Sidebar({
               {APP_NAME} v{appVersion}
             </span>
             <div className="flex shrink-0 items-center gap-1">
+              <UpdateCheckButton compact />
               <Button
                 variant="ghost"
                 size="icon"

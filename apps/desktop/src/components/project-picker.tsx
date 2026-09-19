@@ -32,6 +32,7 @@ import {
   MonitorIcon,
   MoonIcon,
   SunIcon,
+  RefreshCwIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -40,6 +41,7 @@ import { useDocumentStore } from "@/stores/document-store";
 import { useClaudeSetupStore } from "@/stores/claude-setup-store";
 import { useUvSetupStore } from "@/stores/uv-setup-store";
 import { APP_NAME, APP_REPO_URL } from "@/lib/app-identity";
+import { UpdateCheckButton } from "@/components/update-controls";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -55,6 +57,7 @@ import {
   AgentSettings,
   AppearanceSettings,
   LatexSettings,
+  UpdateSettings,
 } from "@/components/settings-form";
 import { cn } from "@/lib/utils";
 
@@ -70,7 +73,8 @@ type SettingsDetailSection =
   | "appearance"
   | "latex"
   | "provider"
-  | "environment";
+  | "environment"
+  | "updates";
 
 type RecentProject = {
   path: string;
@@ -290,6 +294,7 @@ export function ProjectPicker() {
                 {APP_NAME} v{appVersion}
               </span>
               <div className="flex shrink-0 items-center gap-1">
+                <UpdateCheckButton compact />
                 <Button variant="ghost" size="icon" className="size-6" asChild>
                   <a
                     href={APP_REPO_URL}
@@ -406,6 +411,13 @@ export function ProjectPicker() {
                   meta="Python / Skills"
                   onClick={() => setSettingsDetailSection("environment")}
                 />
+                <SettingsDetailButton
+                  active={settingsDetailSection === "updates"}
+                  icon={RefreshCwIcon}
+                  label="Updates"
+                  meta="App"
+                  onClick={() => setSettingsDetailSection("updates")}
+                />
               </aside>
 
               <div className="min-w-0">
@@ -425,6 +437,10 @@ export function ProjectPicker() {
                         <ClaudeSetup variant="embedded" />
                       </div>
                     </div>
+                  </SettingsPanel>
+                ) : settingsDetailSection === "updates" ? (
+                  <SettingsPanel title="Updates" icon={RefreshCwIcon}>
+                    <UpdateSettings />
                   </SettingsPanel>
                 ) : (
                   <SettingsPanel
@@ -817,6 +833,7 @@ function EnvironmentStatus({ appVersion }: { appVersion: string }) {
           ok={true}
           label={APP_NAME}
           detail={appVersion ? `v${appVersion}` : "Checking..."}
+          extra={<UpdateCheckButton />}
         />
       </div>
 
@@ -837,10 +854,12 @@ function StatusRow({
   label,
   detail,
   action,
+  extra,
 }: {
   ok: boolean;
   label: string;
   detail: string;
+  extra?: ReactNode;
   action?: {
     label: string;
     onClick?: () => void;
@@ -877,6 +896,7 @@ function StatusRow({
           {detail}
         </span>
       </div>
+      {extra}
       {action && (
         <Button
           variant="ghost"

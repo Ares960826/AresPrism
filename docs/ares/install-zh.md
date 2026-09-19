@@ -102,4 +102,9 @@ Home 以列表显示工程。
 
 ## 8. 版本与更新
 
-打开软件后若有新版本，选 **Download and install**。也可以到 [Releases](https://github.com/Ares960826/AresPrism/releases) 手动下载。工程内的 Git 快照在编辑器的 Versions 面板。
+启动后会检查 GitHub 是否有新版本，有则会弹出安装。也可以：
+
+- 左下角版本号旁的刷新按钮
+- **设置 → Updates**（工程内）或 **设置 → Environment** 里 AresPrism 一行的 **Check for updates**
+
+安装完成后应用会重启。也可以到 [Releases](https://github.com/Ares960826/AresPrism/releases) 下载 dmg。工程内的 Git 快照在编辑器的 Versions 面板。

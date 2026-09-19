@@ -33,6 +33,10 @@ import {
 } from "@/lib/agent-kind";
 import { cn } from "@/lib/utils";
 import { CapsuleSwitch, RadioDot } from "@/components/ui/capsule-switch";
+import { UpdateCheckButton } from "@/components/update-controls";
+import { useUpdaterStore } from "@/stores/updater-store";
+import { getVersion } from "@tauri-apps/api/app";
+import { APP_NAME } from "@/lib/app-identity";
 
 const CITATION_NONE = "__none__";
 
@@ -524,5 +528,45 @@ function SizeRow({
         className="w-full accent-foreground"
       />
     </Field>
+  );
+}
+
+export function UpdateSettings() {
+  const [version, setVersion] = useState("");
+  const status = useUpdaterStore((s) => s.status);
+
+  useEffect(() => {
+    void getVersion().then(setVersion);
+  }, []);
+
+  const detail =
+    status.state === "available"
+      ? `v${version || "…"} → v${status.version}`
+      : status.state === "up-to-date"
+        ? `v${version} (latest)`
+        : status.state === "error"
+          ? status.message
+          : version
+            ? `v${version}`
+            : "…";
+
+  return (
+    <div className="space-y-5">
+      <Field label="This app">
+        <div className="flex items-center justify-between gap-3 rounded-md border border-border px-2.5 py-2">
+          <div className="min-w-0">
+            <p className="font-medium text-xs">{APP_NAME}</p>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {detail}
+            </p>
+          </div>
+          <UpdateCheckButton />
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Checks GitHub Releases and installs into this app, then restarts. You
+          can also click the version in the sidebar footer.
+        </p>
+      </Field>
+    </div>
   );
 }

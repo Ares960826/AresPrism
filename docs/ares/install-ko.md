@@ -102,4 +102,9 @@ Agent 없이도 작성할 수 있습니다. 이 Mac에 이미 로그인한 CLI�
 
 ## 8. 업데이트와 버전
 
-새 릴리스가 있으면 앱에서 **Download and install**을 고르거나 [Releases](https://github.com/Ares960826/AresPrism/releases)에서 dmg를 받습니다. 프로젝트 Git 스냅샷은 편집기의 Versions 패널에 있습니다.
+실행 시 GitHub에서 새 빌드를 확인합니다. 직접 하려면:
+
+- 왼쪽 아래 버전 옆의 새로 고침
+- **설정 → Updates**, 또는 **설정 → Environment**의 AresPrism 행에서 **Check for updates**
+
+설치 후 앱이 다시 시작됩니다. dmg는 [Releases](https://github.com/Ares960826/AresPrism/releases)에도 있습니다. 프로젝트 Git 스냅샷은 편집기의 Versions 패널에 있습니다.

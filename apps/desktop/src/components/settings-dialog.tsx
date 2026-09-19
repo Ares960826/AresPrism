@@ -1,4 +1,9 @@
-import { TypeIcon, FileCodeIcon, KeyRoundIcon } from "lucide-react";
+import {
+  TypeIcon,
+  FileCodeIcon,
+  KeyRoundIcon,
+  RefreshCwIcon,
+} from "lucide-react";
 import { useState } from "react";
 import {
   Dialog,
@@ -10,12 +15,13 @@ import {
   AgentSettings,
   AppearanceSettings,
   LatexSettings,
+  UpdateSettings,
 } from "@/components/settings-form";
 import { ClaudeSetup } from "@/components/claude-setup";
 import { useSettingsStore } from "@/stores/settings-store";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "appearance" | "latex" | "provider";
+type SettingsTab = "appearance" | "latex" | "provider" | "updates";
 
 export function SettingsDialog() {
   const open = useSettingsStore((s) => s.settingsOpen);
@@ -48,12 +54,20 @@ export function SettingsDialog() {
               label="Provider"
               onClick={() => setTab("provider")}
             />
+            <TabButton
+              active={tab === "updates"}
+              icon={RefreshCwIcon}
+              label="Updates"
+              onClick={() => setTab("updates")}
+            />
           </aside>
           <div className="min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-4">
             {tab === "appearance" ? (
               <AppearanceSettings />
             ) : tab === "latex" ? (
               <LatexSettings />
+            ) : tab === "updates" ? (
+              <UpdateSettings />
             ) : (
               <div className="space-y-6">
                 <AgentSettings />
