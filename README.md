@@ -16,21 +16,93 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Ares960826/AresPrism/releases/latest">
+    <img src="https://img.shields.io/badge/Download-macOS_(Apple_Silicon)-black?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS (Apple Silicon)" />
+  </a>
+</p>
+<p align="center">
   <a href="https://github.com/Ares960826/AresPrism/releases">
     <img src="https://img.shields.io/github/v/release/Ares960826/AresPrism?style=flat-square&label=Latest%20Release&color=green" alt="Latest Release" />
   </a>
 </p>
 
+<p align="center">
+  <img src="./docs/ares/screenshots/workspace.jpg" alt="AresPrism editor and PDF preview" width="800" />
+</p>
+
 AresPrism is a **local** LaTeX tool: you edit, compile, and preview on your own machine. It is meant to stay quiet and get out of the way — papers first, also notes and CVs.
 
-**What it is good at**
+## Why AresPrism?
 
-- Tectonic, TeX Live, and latexmk in one place, with live PDF and SyncTeX
-- Reads your local Zotero library (`zotero.sqlite`): collections, `\cite`, import to `.bib`
-- Optional AI agents (Claude Code, Codex, Grok, Kimi) when those CLIs are already on the Mac
-- A small interface, SyncTeX, and jj/Git version history
+[OpenAI Prism](https://openai.com/prism/) is a cloud workspace. [ClaudePrism](https://github.com/delibae/claude-prism) is a local Claude-centered writing app. AresPrism starts from the same desktop lineage, then treats **LaTeX as the product** and AI as optional.
 
-**Install and deploy**
+| | OpenAI Prism | ClaudePrism | AresPrism |
+|---|:---:|:---:|:---:|
+| What it is | Cloud LaTeX | Claude + LaTeX + skills | **Local LaTeX editor/compiler** |
+| Runtime | Browser | Native desktop | **Native desktop (Tauri 2)** |
+| Compile | Cloud | Tectonic | **Tectonic + TeX Live + latexmk** |
+| Engines | — | Tectonic | **pdfLaTeX / XeLaTeX / LuaLaTeX** |
+| Bibliography | — | Zotero OAuth | **Local `zotero.sqlite`** |
+| AI | Cloud GPT | Claude only | **Optional: Claude, Codex, Grok, Kimi** |
+| UI | Cloud app | Feature-dense | **Simple, including 察尔汗盐湖** |
+| Versions | — | Git history | **Git snapshots in the editor** |
+| Source | Proprietary | MIT | **BSL 1.1** (tags through 0.7.1 stay MIT) |
+
+Files stay on disk. Compile is local. If you never open the chat, nothing is sent to an LLM.
+
+## Features
+
+### Editor and live PDF
+
+CodeMirror 6, MuPDF preview, SyncTeX. **⌘ Enter** compiles. TeX Live / XeLaTeX (or pdfLaTeX / LuaLaTeX) in the preview bar.
+
+<p align="center">
+  <img src="./docs/ares/screenshots/workspace.jpg" alt="Editor, outline, Zotero, PDF" width="800" />
+</p>
+
+### Home
+
+Projects in a list. **New** or **Import**. Default folder: `~/Documents/AresPrism`.
+
+<p align="center">
+  <img src="./docs/ares/screenshots/home.jpg" alt="Home project list" width="800" />
+</p>
+
+### Compilers
+
+**Settings → LaTeX**: Tectonic, TeX Live, or latexmk. Pair several main files; citation files are optional.
+
+<p align="center">
+  <img src="./docs/ares/screenshots/settings-latex.jpg" alt="LaTeX compiler settings" width="700" />
+</p>
+
+### Local Zotero
+
+The sidebar reads this Mac’s `zotero.sqlite` (not zotero.org). Insert `\cite`, import a collection to `.bib`.
+
+### Templates
+
+Guided setup or a blank `.tex`. IEEE / ACM / thesis templates included.
+
+<p align="center">
+  <img src="./docs/ares/screenshots/templates.jpg" alt="Create project" width="600" />
+</p>
+<p align="center">
+  <img src="./docs/ares/screenshots/templates-gallery.jpg" alt="Template gallery" width="800" />
+</p>
+
+### Optional AI agents
+
+Claude Code, Codex, Grok, or Kimi — only if that CLI is already signed in. Appearance, Python/uv, and skills stay in Settings.
+
+<p align="center">
+  <img src="./docs/ares/screenshots/settings.jpg" alt="Appearance settings" width="700" />
+</p>
+<p align="center">
+  <img src="./docs/ares/screenshots/settings-environment.jpg" alt="Environment settings" width="700" />
+</p>
+
+## Install and deploy
 
 - [中文](docs/ares/install-zh.md) · [English](docs/ares/install-en.md) · [한국어](docs/ares/install-ko.md)
 
@@ -42,7 +114,21 @@ Build from source: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Windows contributors wanted
 
-The published app is **macOS Apple Silicon** only. We want collaborators who can own **Windows** packaging, TeX Live paths, installers, and testing. Open an [Issue](https://github.com/Ares960826/AresPrism/issues) or a PR; setup is in [CONTRIBUTING.md](CONTRIBUTING.md).
+The published app is **macOS Apple Silicon** only. We want collaborators who can own **Windows** packaging, TeX Live paths, installers, and testing. Open an [Issue](https://github.com/Ares960826/AresPrism/issues) or a PR.
+
+## Lineage
+
+```
+OpenAI Prism       cloud product (inspiration only)
+      │
+Open Prism         assistant-ui / MIT
+      ▼
+ClaudePrism        delibae / MIT
+      ├── continues as ClaudePrism
+      └── AresPrism   this repository
+```
+
+People who wrote the inherited code: [CREDITS.md](./CREDITS.md).
 
 ## License
 
@@ -50,4 +136,4 @@ From **0.8.0**, [Business Source License 1.1](./LICENSE). Writing papers and not
 
 Upstream Open Prism / ClaudePrism portions stay [MIT](./LICENSES/MIT.txt). Tags **v0.1.0–v0.7.1** remain MIT.
 
-[Credits](./CREDITS.md) · [Changelog](./docs/ares/CHANGELOG.md)
+[Changelog](./docs/ares/CHANGELOG.md)
