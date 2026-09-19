@@ -5,8 +5,8 @@
 <h1 align="center">AresPrism</h1>
 
 <p align="center">
-  논문, 노트, 이력서를 위한 로컬 LaTeX IDE.<br/>
-  Tectonic, TeX Live, latexmk — 실시간 PDF와 SyncTeX.
+  로컬 LaTeX 편집·컴파일 도구.<br/>
+  단순한 화면 · 선택적 AI Agent · 버전 관리.
 </p>
 
 <p align="center">
@@ -21,21 +21,28 @@
   </a>
 </p>
 
-AresPrism은 컴퓨터에 설치하는 **로컬** LaTeX 편집기입니다.
+AresPrism은 컴퓨터에서 직접 편집하고 컴파일하고 미리보는 **로컬** LaTeX 도구입니다. 방해를 줄이고 원고를 끝내는 데 맞춰져 있습니다. 논문이 우선이고, 노트와 이력서도 됩니다.
 
-- 전체 사용 설명(중국어): [使用指南](docs/ares/user-guide.md)
-- 영어 안내: [README.md](./README.md)
-- AI에게 설치를 맡기려면: [agent-install.md](docs/ares/agent-install.md)
-- 개발자: [CONTRIBUTING.md](CONTRIBUTING.md)
+**잘 하는 일**
 
-## 설치 (macOS Apple Silicon)
+- Tectonic, TeX Live, latexmk를 한곳에서, 실시간 PDF와 SyncTeX
+- 이 Mac에 Claude Code / Codex / Grok / Kimi가 있으면 편집기에 연결
+- 작은 인터페이스, Git 스냅샷으로 버전 관리
 
-1. [Releases](https://github.com/Ares960826/AresPrism/releases/latest)에서 `.dmg`를 받습니다.
-2. **AresPrism**을 `/Applications`로 드래그합니다.
-3. 첫 실행이 막히면 Finder에서 **우클릭 → 열기**.
+**설치 및 배포**
 
-논문 템플릿(IEEE 등)과 중문 XeLaTeX는 [MacTeX](https://www.tug.org/mactex/)가 필요합니다. 간단한 영문 문서는 앱에 포함된 Tectonic만으로도 됩니다.
+- [中文](docs/ares/install-zh.md) · [English](docs/ares/install-en.md) · [한국어](docs/ares/install-ko.md)
 
-기본 프로젝트 폴더: `~/Documents/AresPrism`.
+**AI에게 설치를 맡기려면** 이 문장을 이 Mac을 다룰 수 있는 도우미에게 보냅니다:
 
-라이선스: 0.8.0부터 [Business Source License 1.1](./LICENSE). 논문·노트 작성은 허용됩니다.
+> Read https://github.com/Ares960826/AresPrism/blob/main/docs/ares/agent-install.md and install TeX (if needed) and AresPrism on this Mac, then open the app.
+
+소스에서 빌드: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## 라이선스
+
+**0.8.0**부터 [Business Source License 1.1](./LICENSE). 논문과 노트 작성은 허용됩니다. 이 저장소로 경쟁 데스크톱 LaTeX IDE를 배포하는 것은 상업 라이선스 없이 할 수 없습니다.
+
+업스트림은 [MIT](./LICENSES/MIT.txt). **v0.1.0–v0.7.1** 태그는 MIT입니다.
+
+[Credits](./CREDITS.md) · [Changelog](./docs/ares/CHANGELOG.md)

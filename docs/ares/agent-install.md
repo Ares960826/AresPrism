@@ -1,6 +1,6 @@
 # AresPrism — one-shot install for AI agents
 
-Read this file and do the steps on the user's Mac. Do not ask them to copy commands if you can run them. Human guide: `docs/ares/user-guide.md`.
+Read this file and do the steps on the user's Mac. Do not ask them to copy commands if you can run them. Human install guides: `docs/ares/install-zh.md`, `docs/ares/install-en.md`, `docs/ares/install-ko.md`.
 
 Product: **AresPrism** (local LaTeX IDE). GitHub: https://github.com/Ares960826/AresPrism  
 Bundle id `dev.ares.prism`. Do **not** overwrite `/Applications/ClaudePrism.app`.

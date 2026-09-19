@@ -5,8 +5,8 @@
 <h1 align="center">AresPrism</h1>
 
 <p align="center">
-  本地 LaTeX IDE，给论文、笔记和简历用。<br/>
-  Tectonic、TeX Live、latexmk，实时 PDF 预览和 SyncTeX。
+  本地 LaTeX 编辑与编译工具。<br/>
+  界面简单 · 可接入 AI Agent · 自带版本管理。
 </p>
 
 <p align="center">
@@ -21,64 +21,28 @@
   </a>
 </p>
 
-文件在你的电脑上，编译也在你的电脑上。
+AresPrism 是装在自己电脑上的 LaTeX 工具：写、编、预览都在本地。定位是少打扰、把稿子写完——论文优先，也适合笔记和简历。
 
-- **完整步骤：** [使用指南](docs/ares/user-guide.md)
-- **让 AI 代装：** 把下面这句话发给能操作这台电脑的助手
+**它擅长什么**
+
+- Tectonic、TeX Live、latexmk 放在一起，实时 PDF 和 SyncTeX
+- 本机已有 Claude Code / Codex / Grok / Kimi 时，可以接到编辑器里
+- 界面克制，工程版本用 Git 快照管理
+
+**安装与部署**
+
+- [中文](docs/ares/install-zh.md) · [English](docs/ares/install-en.md) · [한국어](docs/ares/install-ko.md)
+
+**让 AI 代装** — 把这句话发给能操作这台电脑的助手：
 
 > 请阅读 https://github.com/Ares960826/AresPrism/blob/main/docs/ares/agent-install.md ，在这台 Mac 上安装 TeX（如需要）和 AresPrism，装好后打开应用。
 
-开发者文档：[CONTRIBUTING.md](CONTRIBUTING.md)
-
-## 1. 安装 TeX（写论文请装）
-
-AresPrism 自带 **Tectonic**，简单英文稿可以不装 TeX Live。IEEE、学校模板、中文 XeLaTeX 请装 **MacTeX**。
-
-先检查：
-
-```bash
-which pdflatex xelatex lualatex latexmk
-```
-
-若已有 `/Library/TeX/texbin/pdflatex`，跳到第 2 步。
-
-安装任选其一：
-
-- 打开 <https://www.tug.org/mactex/> 下载安装（大约 4–5 GB）
-- 或：`brew install --cask mactex-no-gui`，然后新开一个终端
-
-## 2. 安装 AresPrism（macOS Apple Silicon）
-
-1. 从 [Releases](https://github.com/Ares960826/AresPrism/releases/latest) 下载 `AresPrism_*_aarch64.dmg`
-2. 把 **AresPrism** 拖进「应用程序」
-3. 第一次：Finder 里 **右键 → 打开**
-
-可以和官方 `ClaudePrism.app` 并排。不要覆盖它。
-
-以后打开软件时，GitHub 有新版本会提示，可在软件里一键更新。
-
-## 3. 开始写
-
-1. 打开 AresPrism → **New** 或 **Import**
-2. 默认目录：`~/Documents/AresPrism`
-3. **⌘ Enter** 编译，右边看 PDF
-
-**设置 → LaTeX**（或预览顶栏两个菜单）：
-
-| 编译器 | 什么时候用 |
-|---|---|
-| Tectonic | 简单稿、还没装 MacTeX |
-| TeX Live | 已装 MacTeX，论文模板 |
-| latexmk | 已装 MacTeX，参考文献 |
-
-没有 `% !TEX program` 时默认 **pdfLaTeX**。中文、`fontspec` 常用 **XeLaTeX**。
-
-## 4. 可选 AI
-
-不装 AI 也能写。若本机已有 Claude Code / Codex / Grok / Kimi，在聊天或 **设置 → Provider** 里选即可。登录仍走各 CLI 自己的方式。
+从源码编译请看 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可
 
-从 **0.8.0** 起为 [Business Source License 1.1](./LICENSE)。**写论文、做笔记可以。** 不能拿本仓库去做竞品桌面 LaTeX IDE。上游部分仍是 [MIT](./LICENSES/MIT.txt)。
+从 **0.8.0** 起为 [Business Source License 1.1](./LICENSE)。写论文、做笔记可以。不能拿本仓库去做竞品桌面 LaTeX IDE。到 **2029-09-19**（或该版本首次发布满四年，以较早者为准）变为 Apache-2.0。
 
-致谢：[CREDITS.md](./CREDITS.md)。变更：[docs/ares/CHANGELOG.md](./docs/ares/CHANGELOG.md)。
+上游部分仍是 [MIT](./LICENSES/MIT.txt)。**v0.1.0–v0.7.1** 标签仍按 MIT。
+
+[致谢](./CREDITS.md) · [变更](./docs/ares/CHANGELOG.md)

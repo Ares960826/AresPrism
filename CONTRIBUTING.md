@@ -1,7 +1,7 @@
 # Contributing to AresPrism
 
 This file is for **people who want to build AresPrism from source**.  
-If you only want to write papers, use the [user guide](docs/ares/user-guide.md) (中文) or [README.md](./README.md).
+If you only want to write papers, use the install guides: [中文](docs/ares/install-zh.md) · [English](docs/ares/install-en.md) · [한국어](docs/ares/install-ko.md). Product overview: [README.md](./README.md).
 
 Product lineage and credits: [CREDITS.md](./CREDITS.md).
 
