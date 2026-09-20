@@ -116,6 +116,23 @@ interface DocumentState {
   replaceOpenFile: (id: string) => void;
   closeFileTab: (id: string) => void;
   setPreviewRoot: (id: string) => void;
+  applyPreviewSnapshot: (snapshot: {
+    projectRoot: string | null;
+    files: Array<{
+      id: string;
+      name: string;
+      relativePath: string;
+      absolutePath: string;
+      type: ProjectFileType;
+      content?: string;
+    }>;
+    activeFileId: string;
+    openFileIds: string[];
+    pdfRootId: string | null;
+    pdfRevision: number;
+    compileError: string | null;
+    isCompiling: boolean;
+  }) => void;
   startCompile: (rootId: string) => void;
   endCompile: (rootId: string) => void;
   addFile: (
@@ -672,6 +689,28 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     if (state.activeFileId === id) {
       get().setActiveFile(openFileIds[openFileIds.length - 1]);
     }
+  },
+
+  applyPreviewSnapshot: (snapshot) => {
+    _currentPdfRootId = snapshot.pdfRootId;
+    set({
+      projectRoot: snapshot.projectRoot,
+      files: snapshot.files.map((file) => ({
+        ...file,
+        isDirty: false,
+      })),
+      activeFileId: snapshot.activeFileId,
+      openFileIds: snapshot.openFileIds,
+      pdfRevision: snapshot.pdfRevision,
+      compileError: snapshot.compileError,
+      isCompiling: snapshot.isCompiling,
+      compilingRootIds: snapshot.isCompiling
+        ? snapshot.pdfRootId
+          ? [snapshot.pdfRootId]
+          : []
+        : [],
+      initialized: true,
+    });
   },
 
   setPreviewRoot: (id) => {

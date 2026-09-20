@@ -19,7 +19,6 @@ import { usePreviewStore } from "@/stores/preview-store";
 import { useLayoutStore } from "@/stores/layout-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { previewPanelMinPercent } from "@/lib/preview-panel";
-import { FloatingPane } from "./floating-pane";
 
 const SIDEBAR_DEFAULT_SIZE = 15;
 const SIDEBAR_MIN_SIZE = 10;
@@ -36,7 +35,6 @@ export function WorkspaceLayout() {
   const previewVisible = usePreviewStore((s) => s.visible);
   const setPreviewVisible = usePreviewStore((s) => s.setVisible);
   const previewFloating = useLayoutStore((s) => s.previewFloating);
-  const setPreviewFloating = useLayoutStore((s) => s.setPreviewFloating);
   const dockedPreview = previewVisible && !previewFloating;
   const workspaceRef = useRef<HTMLDivElement>(null);
   const sidebarPanelRef = useRef<ImperativePanelHandle>(null);
@@ -252,11 +250,6 @@ export function WorkspaceLayout() {
           </Panel>
         )}
       </PanelGroup>
-      {previewFloating && previewVisible && (
-        <FloatingPane title="Preview" onDock={() => setPreviewFloating(false)}>
-          <PdfPreview />
-        </FloatingPane>
-      )}
     </div>
   );
 }

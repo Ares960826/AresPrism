@@ -8,6 +8,7 @@ import { APP_VISIBILITY_RESTORED } from "./lib/debug/log-store";
 import "./styles/globals.css";
 
 const isDebugWindow = new URLSearchParams(window.location.search).has("debug");
+const detachedPane = new URLSearchParams(window.location.search).get("pane");
 
 const log = createLogger("app");
 
@@ -79,6 +80,20 @@ async function bootstrap() {
       </React.StrictMode>,
     );
     hideLoadingScreen();
+    return;
+  }
+
+  if (detachedPane === "preview" || detachedPane === "chat") {
+    document.documentElement.style.setProperty("--titlebar-height", "0px");
+    document.documentElement.style.setProperty("--traffic-light-width", "0px");
+    const { DetachedPaneApp } = await import(
+      "./components/workspace/detached-pane-app"
+    );
+    ReactDOM.createRoot(rootContainer).render(
+      <React.StrictMode>
+        <DetachedPaneApp pane={detachedPane} onReady={hideLoadingScreen} />
+      </React.StrictMode>,
+    );
     return;
   }
 

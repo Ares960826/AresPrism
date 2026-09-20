@@ -70,9 +70,28 @@ import {
 } from "./pdf-viewer";
 import { resolveTexRoot } from "@/stores/document-store";
 import { createLogger } from "@/lib/debug/logger";
+import { emit } from "@tauri-apps/api/event";
+import { PANE_EVENTS, parseDetachedPane } from "@/lib/detached-pane";
+import { jumpEditorToSynctexSource } from "@/lib/synctex-jump";
 import { cn } from "@/lib/utils";
 
 const log = createLogger("pdf-preview");
+
+function sendChatPrompt(
+  prompt: string,
+  context?: Parameters<
+    ReturnType<typeof useClaudeChatStore.getState>["sendPrompt"]
+  >[1],
+) {
+  if (parseDetachedPane() === "preview") {
+    void emit(PANE_EVENTS.chatCall, {
+      name: "sendPrompt",
+      args: context ? [prompt, context] : [prompt],
+    });
+    return;
+  }
+  void useClaudeChatStore.getState().sendPrompt(prompt, context);
+}
 
 type FitMode = "fit-width" | "fit-height" | null;
 
@@ -116,15 +135,11 @@ export function PdfPreview() {
   const projectRoot = useDocumentStore((s) => s.projectRoot);
   const files = useDocumentStore((s) => s.files);
   const saveAllFiles = useDocumentStore((s) => s.saveAllFiles);
-  const setActiveFile = useDocumentStore((s) => s.setActiveFile);
   const activeFile = useDocumentStore((s) => {
     return s.files.find((f) => f.id === s.activeFileId) ?? null;
   });
   const activeFileType = activeFile?.type ?? "tex";
   const isTexActive = activeFileType === "tex";
-  const requestJumpToPosition = useDocumentStore(
-    (s) => s.requestJumpToPosition,
-  );
 
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
@@ -218,38 +233,13 @@ export function PdfPreview() {
 
   const jumpToSynctexSource = useCallback(
     (file: string, line: number, column: number) => {
-      const normalize = (p: string) =>
-        p
-          .replace(/\\/g, "/")
-          .replace(/^\.\//, "")
-          .replace(/\/\.\//g, "/");
-      const normalizedTarget = normalize(file);
-      const targetFile =
-        files.find((f) => normalize(f.relativePath) === normalizedTarget) ??
-        files.find((f) =>
-          normalizedTarget.endsWith(`/${normalize(f.relativePath)}`),
-        );
-      if (!targetFile) return;
-
-      const state = useDocumentStore.getState();
-      if (state.activeFileId !== targetFile.id) {
-        state.openFileInTab(targetFile.id);
-        setActiveFile(targetFile.id);
+      if (parseDetachedPane() === "preview") {
+        void emit(PANE_EVENTS.synctexJump, { file, line, column });
+        return;
       }
-
-      const fileContent = targetFile.content ?? "";
-      const fileLines = fileContent.split("\n");
-      const targetLine = Math.max(1, Math.min(line, fileLines.length));
-      let offset = 0;
-      for (let i = 0; i < targetLine - 1; i++) {
-        offset += fileLines[i].length + 1;
-      }
-      if (column > 0) {
-        offset += Math.min(column, fileLines[targetLine - 1]?.length ?? 0);
-      }
-      requestJumpToPosition(offset, targetFile.id);
+      jumpEditorToSynctexSource(file, line, column);
     },
-    [files, setActiveFile, requestJumpToPosition],
+    [],
   );
 
   const handleSynctexClick = useCallback(
@@ -329,40 +319,12 @@ export function PdfPreview() {
 
   const navigateToSource = useCallback(() => {
     if (!resolvedSource) return;
-    const normalize = (p: string) => p.replace(/\\/g, "/").replace(/^\.\//, "");
-    const normalizedTarget = normalize(resolvedSource.file);
-    const targetFile = files.find(
-      (f) => normalize(f.relativePath) === normalizedTarget,
+    jumpToSynctexSource(
+      resolvedSource.file,
+      resolvedSource.line,
+      resolvedSource.column,
     );
-    if (!targetFile) return;
-
-    const state = useDocumentStore.getState();
-    const needsSwitch = state.activeFileId !== targetFile.id;
-    if (needsSwitch) setActiveFile(targetFile.id);
-
-    const fileContent = targetFile.content ?? "";
-    const fileLines = fileContent.split("\n");
-    const targetLine = Math.max(
-      1,
-      Math.min(resolvedSource.line, fileLines.length),
-    );
-    let offset = 0;
-    for (let i = 0; i < targetLine - 1; i++) {
-      offset += fileLines[i].length + 1;
-    }
-    if (resolvedSource.column > 0) {
-      offset += Math.min(
-        resolvedSource.column,
-        fileLines[targetLine - 1]?.length ?? 0,
-      );
-    }
-
-    if (needsSwitch) {
-      setTimeout(() => requestJumpToPosition(offset), 100);
-    } else {
-      requestJumpToPosition(offset);
-    }
-  }, [resolvedSource, files, setActiveFile, requestJumpToPosition]);
+  }, [resolvedSource, jumpToSynctexSource]);
 
   const buildPdfContext = useCallback(
     (text: string) => {
@@ -383,7 +345,7 @@ export function PdfPreview() {
       const sel = pdfSelection;
       setPdfSelection(null);
       window.getSelection()?.removeAllRanges();
-      useClaudeChatStore.getState().sendPrompt(prompt, {
+      sendChatPrompt(prompt, {
         label,
         filePath: resolvedSource?.file ?? "document.pdf",
         selectedText: buildPdfContext(sel.text),
@@ -417,13 +379,11 @@ export function PdfPreview() {
       setPdfSelection(null);
       window.getSelection()?.removeAllRanges();
       if (actionId === "proofread") {
-        useClaudeChatStore
-          .getState()
-          .sendPrompt("Proofread and fix any errors in this text", {
-            label,
-            filePath: resolvedSource?.file ?? "document.pdf",
-            selectedText: buildPdfContext(sel.text),
-          });
+        sendChatPrompt("Proofread and fix any errors in this text", {
+          label,
+          filePath: resolvedSource?.file ?? "document.pdf",
+          selectedText: buildPdfContext(sel.text),
+        });
       } else if (actionId === "navigate") {
         navigateToSource();
       }
@@ -458,6 +418,7 @@ export function PdfPreview() {
 
   useEffect(() => {
     if (hasInitialCompile.current) return;
+    if (parseDetachedPane() === "preview") return;
     if (!initialized || !projectRoot) return;
     if (pdfData || isCompiling || compileError) return;
 
@@ -592,6 +553,10 @@ export function PdfPreview() {
   };
 
   const handleCompile = async (force = false) => {
+    if (parseDetachedPane() === "preview") {
+      void emit(PANE_EVENTS.compile, { force });
+      return;
+    }
     // Read all guard values from the store to avoid stale closures
     const state = useDocumentStore.getState();
     if (!state.projectRoot) return;
@@ -711,11 +676,9 @@ export function PdfPreview() {
 
       const handleFixWithChat = () => {
         const errorList = errors.map((e) => `- ${e}`).join("\n");
-        useClaudeChatStore
-          .getState()
-          .sendPrompt(
-            `[Compilation errors]\n${errorList}\n\nFix these LaTeX compilation errors.`,
-          );
+        sendChatPrompt(
+          `[Compilation errors]\n${errorList}\n\nFix these LaTeX compilation errors.`,
+        );
       };
 
       return (

@@ -1,4 +1,4 @@
-import { ThemeProvider, useTheme } from "next-themes";
+import { ThemeProvider } from "next-themes";
 import { ErrorBoundary } from "react-error-boundary";
 import { Toaster } from "@/components/ui/sonner";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -16,8 +16,11 @@ import { ErrorFallback } from "@/components/error-fallback";
 import { createLogger } from "@/lib/debug/logger";
 import { EnvironmentOnboarding } from "@/components/environment-onboarding";
 import { AppearanceBridge } from "@/components/appearance-bridge";
+import { NativeWindowThemeBridge } from "@/components/native-window-theme-bridge";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { UpdateNotifier } from "@/components/update-notifier";
+import { useMainPaneBridge } from "@/hooks/use-main-pane-bridge";
+import { useLayoutStore } from "@/stores/layout-store";
 import { APP_NAME } from "@/lib/app-identity";
 
 const log = createLogger("app");
@@ -32,51 +35,6 @@ interface ClaudeSessionInfo {
   session_id: string;
   title: string;
   last_modified: number;
-}
-
-function NativeWindowThemeBridge() {
-  const { resolvedTheme, theme } = useTheme();
-
-  useEffect(() => {
-    const syncNativeTheme = () => {
-      const isDark =
-        document.documentElement.classList.contains("dark") ||
-        resolvedTheme === "dark";
-      const nativeTheme = isDark ? "dark" : "light";
-
-      document.documentElement.style.colorScheme = nativeTheme;
-      invoke("set_native_window_theme", { theme: nativeTheme })
-        .catch((err) => {
-          log.warn("Failed to sync native window theme via Rust command", {
-            error: String(err),
-          });
-          return getCurrentWindow().setTheme(nativeTheme);
-        })
-        .catch((err) => {
-          log.warn("Failed to sync native window theme via JS API", {
-            error: String(err),
-          });
-        });
-    };
-
-    syncNativeTheme();
-
-    const observer = new MutationObserver(syncNativeTheme);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-
-    const systemThemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    systemThemeQuery.addEventListener("change", syncNativeTheme);
-
-    return () => {
-      observer.disconnect();
-      systemThemeQuery.removeEventListener("change", syncNativeTheme);
-    };
-  }, [resolvedTheme, theme]);
-
-  return null;
 }
 
 function WorkspaceWithClaude() {
@@ -193,6 +151,7 @@ export function App({ onReady }: { onReady?: () => void }) {
 
   // Register global keyboard shortcuts (Cmd+S, Cmd+N) at the app level
   useKeyboardShortcuts();
+  useMainPaneBridge();
 
   useEffect(() => {
     const preventNativeContextMenu = (event: MouseEvent) => {
@@ -213,6 +172,8 @@ export function App({ onReady }: { onReady?: () => void }) {
   useEffect(() => {
     if (!projectRoot) {
       getCurrentWindow().setTitle(APP_NAME);
+      useLayoutStore.getState().setPreviewFloating(false);
+      useLayoutStore.getState().setChatMode("docked");
     }
   }, [projectRoot]);
 

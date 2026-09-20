@@ -14,7 +14,7 @@ import { useClaudeEvents } from "@/hooks/use-claude-events";
 import { ChatMessages } from "./chat-messages";
 import { ChatComposer } from "./chat-composer";
 import { ChatTabBar } from "./chat-tab-bar";
-import { FloatingPane } from "@/components/workspace/floating-pane";
+import { parseDetachedPane } from "@/lib/detached-pane";
 
 const MIN_HEIGHT = 200;
 const DEFAULT_HEIGHT = 280;
@@ -78,6 +78,7 @@ export function ClaudeChatDrawer({
   }, []);
 
   const docked = chatMode === "docked";
+  const detachedChat = parseDetachedPane() === "chat";
 
   const panelBody = (
     <>
@@ -105,7 +106,10 @@ export function ClaudeChatDrawer({
               type="button"
               className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               title="Close"
-              onClick={() => setIsOpen(false)}
+              onClick={() => {
+                setIsOpen(false);
+                if (!docked) setChatMode("docked");
+              }}
             >
               <ChevronDownIcon className="size-3.5" />
             </button>
@@ -124,6 +128,20 @@ export function ClaudeChatDrawer({
     </>
   );
 
+  if (detachedChat) {
+    return (
+      <div
+        ref={panelRef}
+        className={cn(
+          "relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-background",
+          isDragging && "!transition-none",
+        )}
+      >
+        {panelBody}
+      </div>
+    );
+  }
+
   if (!isOpen) {
     const fab = (
       <button
@@ -141,20 +159,7 @@ export function ClaudeChatDrawer({
   }
 
   if (!docked) {
-    return createPortal(
-      <FloatingPane title="AI" onDock={() => setChatMode("docked")}>
-        <div
-          ref={panelRef}
-          className={cn(
-            "relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-background",
-            isDragging && "!transition-none",
-          )}
-        >
-          {panelBody}
-        </div>
-      </FloatingPane>,
-      document.body,
-    );
+    return null;
   }
 
   if (!editorEl) return null;

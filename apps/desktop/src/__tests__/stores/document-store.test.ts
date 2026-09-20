@@ -687,4 +687,34 @@ describe("useDocumentStore", () => {
       );
     });
   });
+
+  describe("applyPreviewSnapshot", () => {
+    it("hydrates project files and the active PDF root", () => {
+      useDocumentStore.getState().applyPreviewSnapshot({
+        projectRoot: "/paper",
+        files: [
+          {
+            id: "main.tex",
+            name: "main.tex",
+            relativePath: "main.tex",
+            absolutePath: "/paper/main.tex",
+            type: "tex",
+            content: "\\documentclass{article}",
+          },
+        ],
+        activeFileId: "main.tex",
+        openFileIds: ["main.tex"],
+        pdfRootId: "main.tex",
+        pdfRevision: 4,
+        compileError: null,
+        isCompiling: false,
+      });
+      const state = useDocumentStore.getState();
+      expect(state.projectRoot).toBe("/paper");
+      expect(state.initialized).toBe(true);
+      expect(state.pdfRevision).toBe(4);
+      expect(getCurrentPdfRootId()).toBe("main.tex");
+      expect(state.files[0]?.content).toBe("\\documentclass{article}");
+    });
+  });
 });

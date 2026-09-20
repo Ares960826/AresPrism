@@ -477,6 +477,67 @@ fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn pane_window_label(pane: &str) -> Option<&'static str> {
+    match pane {
+        "preview" => Some("preview-pane"),
+        "chat" => Some("chat-pane"),
+        _ => None,
+    }
+}
+
+/// Independent Preview / AI windows that can move off the main app frame.
+#[tauri::command]
+fn open_pane_window(app: tauri::AppHandle, pane: String) -> Result<(), String> {
+    let label = pane_window_label(&pane).ok_or_else(|| format!("Unknown pane: {pane}"))?;
+    if let Some(win) = app.get_webview_window(label) {
+        let _ = win.unminimize();
+        win.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let title = match pane.as_str() {
+        "chat" => format!("{APP_DISPLAY_NAME} — AI"),
+        _ => format!("{APP_DISPLAY_NAME} — Preview"),
+    };
+    let (width, height) = if pane == "chat" {
+        (480.0, 720.0)
+    } else {
+        (720.0, 900.0)
+    };
+
+    let url = WebviewUrl::App(format!("index.html?pane={pane}").into());
+    let window = WebviewWindowBuilder::new(&app, label, url)
+        .title(&title)
+        .inner_size(width, height)
+        .min_inner_size(360.0, 280.0)
+        .resizable(true)
+        .maximizable(true)
+        .minimizable(true)
+        .zoom_hotkeys_enabled(true)
+        .visible(true)
+        .build()
+        .map_err(|e| format!("Failed to create pane window: {e}"))?;
+
+    let handle = app.clone();
+    let pane_closed = pane.clone();
+    let _ = window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            let _ = handle.emit("ares-pane:closed", &pane_closed);
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn close_pane_window(app: tauri::AppHandle, pane: String) -> Result<(), String> {
+    let label = pane_window_label(&pane).ok_or_else(|| format!("Unknown pane: {pane}"))?;
+    if let Some(win) = app.get_webview_window(label) {
+        win.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 // --- System info for debug panel & bug reports ---
 
 #[derive(serde::Serialize)]
@@ -594,6 +655,18 @@ pub fn run() {
                     }
                 }
             });
+            if let Some(main) = app.get_webview_window("main") {
+                let handle = app.handle().clone();
+                let _ = main.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Destroyed) {
+                        for label in ["preview-pane", "chat-pane"] {
+                            if let Some(pane) = handle.get_webview_window(label) {
+                                let _ = pane.close();
+                            }
+                        }
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -679,6 +752,8 @@ pub fn run() {
             uv::uv_run_command,
             get_system_info,
             open_debug_window,
+            open_pane_window,
+            close_pane_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

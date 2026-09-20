@@ -44,6 +44,15 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
 }));
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: vi.fn(() => ({
+    show: vi.fn(() => Promise.resolve()),
+    setTitle: vi.fn(() => Promise.resolve()),
+    setTheme: vi.fn(() => Promise.resolve()),
+    close: vi.fn(() => Promise.resolve()),
+  })),
+}));
+
 // Mock @tauri-apps/api/webview
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: vi.fn(() => mockWebview),
