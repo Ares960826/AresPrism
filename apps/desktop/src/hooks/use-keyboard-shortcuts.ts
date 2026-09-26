@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { requestPreviewCompile } from "@/lib/preview-compile";
 import { invoke } from "@tauri-apps/api/core";
 import { getAppZoomAction, shouldHandleAppZoomShortcut } from "@/lib/app-zoom";
 import { useDocumentStore } from "@/stores/document-store";
@@ -22,7 +23,19 @@ export function useKeyboardShortcuts() {
         useSettingsStore.getState().setSettingsOpen(true);
       }
 
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+      if (e.defaultPrevented || e.isComposing || e.repeat) return;
+      if (
+        e.ctrlKey &&
+        !e.metaKey &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "s"
+      ) {
+        e.preventDefault();
+        void requestPreviewCompile(true).catch(() => {});
+        return;
+      }
+      if (e.metaKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
         const state = useDocumentStore.getState();
         state.setIsSaving(true);

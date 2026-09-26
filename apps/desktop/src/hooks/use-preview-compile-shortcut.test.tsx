@@ -52,3 +52,10 @@ it("removes its listener when the preview is unmounted", async () => {
   key({ metaKey: true });
   expect(compile).not.toHaveBeenCalled();
 });
+
+it("compiles with Ctrl+S without changing Cmd+S save behavior", () => {
+  expect(key({ key: "s", ctrlKey: true }).defaultPrevented).toBe(true);
+  expect(key({ key: "S", ctrlKey: true }).defaultPrevented).toBe(true);
+  expect(key({ key: "s", metaKey: true }).defaultPrevented).toBe(false);
+  expect(compile).toHaveBeenCalledTimes(2);
+});

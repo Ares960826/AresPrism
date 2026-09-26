@@ -11,7 +11,10 @@ export function usePreviewCompileShortcut(compile: () => void) {
         event.altKey ||
         event.shiftKey ||
         !(event.metaKey || event.ctrlKey) ||
-        event.key !== "Enter"
+        !(
+          event.key === "Enter" ||
+          (event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "s")
+        )
       )
         return;
       event.preventDefault();

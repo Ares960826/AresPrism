@@ -579,6 +579,13 @@ export function LatexEditor() {
           },
         },
         {
+          key: "Ctrl-s",
+          run: () => {
+            compileRef.current();
+            return true;
+          },
+        },
+        {
           key: "Mod-s",
           run: () => {
             const state = useDocumentStore.getState();

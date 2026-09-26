@@ -7,6 +7,7 @@ use crate::claude_process::spawn_streaming_process;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tauri::WebviewWindow;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 #[cfg(windows)]
@@ -15,7 +16,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-const LATEX_HINT: &str = "You are running inside AresPrism, a local LaTeX IDE. Prefer small, targeted edits to existing .tex files. Do not rewrite whole files. Preserve the preamble, packages, and document structure.\n\n";
+const LATEX_HINT: &str = "You are running inside AresPrism, a local LaTeX IDE. Prefer small, targeted edits to existing .tex files. Avoid combining file deletion with inspection commands; use separate focused tool calls and respect approval rejections. Do not rewrite whole files. Preserve the preamble, packages, and document structure.\n\n";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AgentKind {
@@ -100,6 +101,17 @@ pub struct AgentModelInfo {
 #[tauri::command]
 pub async fn list_agent_models(agent: String) -> Result<Vec<AgentModelInfo>, String> {
     let kind = AgentKind::parse(&agent)?;
+    if kind == AgentKind::Codex && is_cli_authenticated(kind) {
+        let binary = find_cli_binary(kind).ok_or("Codex CLI is not installed")?;
+        return probe_codex_models_live(&binary).await.or_else(|error| {
+            let cached = probe_codex_models();
+            if cached.is_empty() {
+                Err(error)
+            } else {
+                Ok(cached)
+            }
+        });
+    }
     Ok(list_models_for(kind))
 }
 
@@ -137,6 +149,14 @@ pub async fn execute_agent(
         )
     })?;
 
+    if kind == AgentKind::Codex {
+        if let Some(selected) = model.as_deref().filter(|m| !m.is_empty()) {
+            let available = probe_codex_models_live(&binary).await?;
+            if !available.iter().any(|m| m.id == selected) {
+                return Err(format!("Model {selected} is not available in this Codex login. Refresh the model list and select an available model."));
+            }
+        }
+    }
     let prompt = format!("{LATEX_HINT}{prompt}");
     let resume = session_id
         .as_deref()
@@ -355,68 +375,108 @@ fn list_models_for(kind: AgentKind) -> Vec<AgentModelInfo> {
     }
 }
 
-/// Coding models advertised by the installed Codex CLI (not ChatGPT image/audio).
-const CODEX_CLI_MODELS: &[&str] = &[
-    "gpt-6-astra",
-    "gpt-5.6",
-    "gpt-5.6-luna",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-    "gpt-5.6-pro",
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.3-codex",
-    "gpt-5.2-codex",
-    "gpt-5.2",
-    "gpt-5.1-codex-max",
-];
-
-fn probe_codex_models() -> Vec<AgentModelInfo> {
-    let mut models = Vec::new();
-    let mut push = |id: String| {
-        if id.is_empty() || models.iter().any(|item: &AgentModelInfo| item.id == id) {
-            return;
-        }
-        models.push(AgentModelInfo {
-            label: id.clone(),
-            id,
-        });
-    };
-    if let Some(configured) = read_toml_key(&codex_config_path(), "model") {
-        push(configured);
-    }
-    for id in read_all_toml_keys(&codex_config_path(), "model") {
-        push(id);
-    }
-    for id in CODEX_CLI_MODELS {
-        push((*id).to_string());
-    }
-    models
-}
-
-fn read_all_toml_keys(path: &Path, key: &str) -> Vec<String> {
-    let Ok(text) = std::fs::read_to_string(path) else {
+fn models_from_codex_response(value: &Value) -> Vec<AgentModelInfo> {
+    let Some(models) = value.pointer("/result/data").and_then(Value::as_array) else {
         return Vec::new();
     };
-    let mut values = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') {
-            continue;
+    models
+        .iter()
+        .filter(|model| model.get("hidden").and_then(Value::as_bool) != Some(true))
+        .filter_map(|model| {
+            let id = model.get("model")?.as_str()?;
+            Some(AgentModelInfo {
+                id: id.to_string(),
+                label: model
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .unwrap_or(id)
+                    .to_string(),
+            })
+        })
+        .collect()
+}
+
+async fn probe_codex_models_live(binary: &str) -> Result<Vec<AgentModelInfo>, String> {
+    let mut command = Command::new(binary);
+    command
+        .arg("app-server")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("Could not query Codex models: {e}"))?;
+    let mut input = child.stdin.take().ok_or("Codex model query has no stdin")?;
+    let output = child
+        .stdout
+        .take()
+        .ok_or("Codex model query has no stdout")?;
+    let query = async {
+        let mut lines = BufReader::new(output).lines();
+        input.write_all(format!("{}\n", json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"aresprism","version":env!("CARGO_PKG_VERSION")}}})).as_bytes()).await.map_err(|e| e.to_string())?;
+        while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+            let Ok(value) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            if value.get("id") == Some(&json!(1)) {
+                if value.get("error").is_some() {
+                    return Err("Codex initialization failed".to_string());
+                }
+                input.write_all(b"{\"method\":\"initialized\"}\n{\"id\":2,\"method\":\"model/list\",\"params\":{}}\n").await.map_err(|e| e.to_string())?;
+            }
+            if value.get("id") == Some(&json!(2)) {
+                let models = models_from_codex_response(&value);
+                return if models.is_empty() {
+                    Err("Codex returned no available models; check sign-in".to_string())
+                } else {
+                    Ok(models)
+                };
+            }
         }
-        let Some((left, right)) = trimmed.split_once('=') else {
-            continue;
-        };
-        if left.trim() != key {
-            continue;
-        }
-        let value = right.trim().trim_matches('"').trim_matches('\'').trim();
-        if !value.is_empty() {
-            values.push(value.to_string());
-        }
-    }
-    values
+        Err("Codex model query exited before replying".to_string())
+    };
+    let result = tokio::time::timeout(std::time::Duration::from_secs(12), query)
+        .await
+        .unwrap_or_else(|_| Err("Codex model query timed out".to_string()));
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    result
+}
+
+fn probe_codex_models() -> Vec<AgentModelInfo> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let Ok(text) = std::fs::read_to_string(home.join(".codex/models_cache.json")) else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&text) else {
+        return Vec::new();
+    };
+    let Some(models) = value.get("models").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let data: Vec<Value> = models
+        .iter()
+        .filter(|m| m.get("visibility").and_then(Value::as_str) == Some("list"))
+        .map(|m| json!({"model":m.get("slug"),"displayName":m.get("display_name")}))
+        .collect();
+    models_from_codex_response(&json!({"result":{"data":data}}))
+}
+
+fn cli_version_key(version: &str) -> (u32, u32, u32) {
+    let version = version.split_whitespace().last().unwrap_or(version);
+    let mut numbers = version
+        .split(['.', '-'])
+        .map(|v| v.parse::<u32>().unwrap_or(0));
+    (
+        numbers.next().unwrap_or(0),
+        numbers.next().unwrap_or(0),
+        numbers.next().unwrap_or(0),
+    )
 }
 
 fn codex_config_path() -> PathBuf {
@@ -424,27 +484,6 @@ fn codex_config_path() -> PathBuf {
         .unwrap_or_default()
         .join(".codex")
         .join("config.toml")
-}
-
-fn read_toml_key(path: &Path, key: &str) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') {
-            continue;
-        }
-        let Some((left, right)) = trimmed.split_once('=') else {
-            continue;
-        };
-        if left.trim() != key {
-            continue;
-        }
-        let value = right.trim().trim_matches('"').trim_matches('\'').trim();
-        if !value.is_empty() {
-            return Some(value.to_string());
-        }
-    }
-    None
 }
 
 fn probe_grok_models(binary: &str) -> Option<Vec<AgentModelInfo>> {
@@ -635,6 +674,20 @@ fn build_cli_args(
 
 fn find_cli_binary(kind: AgentKind) -> Option<String> {
     let name = kind.binary();
+    if kind == AgentKind::Codex {
+        let mut candidates = extra_binary_candidates(kind);
+        if let Ok(path) = which::which(name) {
+            candidates.push(path);
+        }
+        return candidates
+            .into_iter()
+            .filter(|path| path.is_file())
+            .filter_map(|path| {
+                read_version(path.to_str()?).map(|version| (cli_version_key(&version), path))
+            })
+            .max_by_key(|(version, _)| *version)
+            .map(|(_, path)| path.to_string_lossy().into_owned());
+    }
     for candidate in extra_binary_candidates(kind) {
         if candidate.exists() {
             return Some(candidate.to_string_lossy().to_string());
@@ -669,6 +722,9 @@ fn extra_binary_candidates(kind: AgentKind) -> Vec<PathBuf> {
             .join("bin")
             .join(binary_filename("kimi"))],
         AgentKind::Codex => vec![
+            PathBuf::from("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
+            PathBuf::from("/Applications/Codex.app/Contents/Resources/codex"),
+            home.join(".local/bin").join(binary_filename("codex")),
             PathBuf::from("/opt/homebrew/bin").join(binary_filename("codex")),
             PathBuf::from("/usr/local/bin").join(binary_filename("codex")),
         ],
@@ -943,12 +999,24 @@ fn system_init(session_id: &str) -> String {
     .to_string()
 }
 
+fn codex_error_message(message: &str) -> String {
+    serde_json::from_str::<Value>(message)
+        .ok()
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .or_else(|| v.get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| message.to_owned())
+}
+
 fn result_event(success: bool, message: &str) -> String {
     json!({
         "type": "result",
         "subtype": if success { "success" } else { "error" },
         "is_error": !success,
-        "result": message
+        "result": codex_error_message(message)
     })
     .to_string()
 }
@@ -985,6 +1053,42 @@ fn tool_result(id: &str, content: &str, is_error: bool) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn runtime_versions_rank_newer_codex_above_homebrew() {
+        assert!(
+            super::cli_version_key("codex-cli 0.158.0-alpha.2.1")
+                > super::cli_version_key("codex-cli 0.153.4")
+        );
+    }
+    #[test]
+    fn oauth_model_list_preserves_luna_and_excludes_hidden_models() {
+        let value = serde_json::json!({"result":{"data":[
+            {"model":"gpt-6-sol","displayName":"GPT-6-Sol","hidden":false},
+            {"model":"gpt-6-luna","displayName":"GPT-6-Luna","hidden":false},
+            {"model":"codex-auto-review","hidden":true}]}});
+        let models = super::models_from_codex_response(&value);
+        assert_eq!(
+            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["gpt-6-sol", "gpt-6-luna"]
+        );
+        assert!(super::models_from_codex_response(
+            &serde_json::json!({"error":{"message":"not signed in"}})
+        )
+        .is_empty());
+    }
+    #[test]
+    fn provider_json_errors_show_the_actual_message() {
+        let message = r#"{"type":"error","status":400,"error":{"message":"Model is not supported for this account"}}"#;
+        assert_eq!(
+            super::codex_error_message(message),
+            "Model is not supported for this account"
+        );
+        assert_eq!(
+            super::codex_error_message("CLI unavailable"),
+            "CLI unavailable"
+        );
+    }
+
     use super::*;
 
     #[test]

@@ -1,3 +1,4 @@
+import { FileTypeIcon } from "@/components/workspace/file-type-icon";
 import {
   useState,
   useCallback,
@@ -12,7 +13,6 @@ import {
   FolderIcon,
   HomeIcon,
   FolderPlusIcon,
-  ImageIcon,
   PlusIcon,
   Trash2Icon,
   PencilIcon,
@@ -28,8 +28,6 @@ import {
   ChevronRightIcon,
   ChevronDownIcon,
   FileCodeIcon,
-  FileIcon,
-  FileSpreadsheetIcon,
   AppWindowIcon,
   FlaskConicalIcon,
   TerminalIcon,
@@ -260,13 +258,7 @@ function buildFileTree(files: ProjectFile[], folders: string[]): TreeNode[] {
 // ─── File Icon ───
 
 function getFileIcon(file: ProjectFile) {
-  if (file.type === "image") return <ImageIcon className="size-4 shrink-0" />;
-  if (file.type === "pdf")
-    return <FileSpreadsheetIcon className="size-4 shrink-0" />;
-  if (file.type === "style")
-    return <FileCodeIcon className="size-4 shrink-0" />;
-  if (file.type === "other") return <FileIcon className="size-4 shrink-0" />;
-  return <FileTextIcon className="size-4 shrink-0" />;
+  return <FileTypeIcon name={file.name} />;
 }
 
 // ─── App Version (resolved once from Tauri) ───

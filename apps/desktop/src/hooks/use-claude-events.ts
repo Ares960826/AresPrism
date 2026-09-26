@@ -1,9 +1,9 @@
+import { isDirectApiProviderKey } from "@/lib/agent-kind";
 import { useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { remove } from "@tauri-apps/plugin-fs";
 import {
-  CLAUDE_CODE_PROVIDER_ID,
   useClaudeChatStore,
   type ClaudeStreamMessage,
 } from "@/stores/claude-chat-store";
@@ -82,7 +82,7 @@ export function useClaudeEvents() {
         const providerKey = tab.sessionProviderKey ?? tab.providerKey;
         directProviderTabRef.current.set(
           tab.id,
-          !!providerKey && providerKey !== CLAUDE_CODE_PROVIDER_ID,
+          isDirectApiProviderKey(providerKey),
         );
         msgCountRef.current.set(tab.id, 0);
         streamStartTimeRef.current.delete(tab.id);
@@ -100,6 +100,7 @@ export function useClaudeEvents() {
   useEffect(() => {
     function setUserVisibleError(tabId: string, message: string) {
       if (/additional input from stdin/i.test(message)) return;
+      if (lastErrorRef.current.get(tabId) === message) return;
       lastErrorRef.current.set(tabId, message);
       useClaudeChatStore.getState()._setError(tabId, message);
     }

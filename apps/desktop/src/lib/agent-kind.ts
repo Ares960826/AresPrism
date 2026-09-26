@@ -56,6 +56,16 @@ export function isLocalCliAgentKey(providerKey: string | null): boolean {
   return !!providerKey?.startsWith("agent:");
 }
 
+export function isDirectApiProviderKey(
+  providerKey: string | null | undefined,
+): boolean {
+  return (
+    !!providerKey &&
+    providerKey !== "__claude-code__" &&
+    !isLocalCliAgentKey(providerKey)
+  );
+}
+
 export interface AgentModelOption {
   id: string;
   label: string;
