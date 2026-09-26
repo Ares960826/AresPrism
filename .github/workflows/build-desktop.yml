@@ -231,7 +231,7 @@ jobs:
           TARGET="aarch64-apple-darwin"
           BUNDLE="apps/desktop/src-tauri/target/$TARGET/release/bundle"
           DMG_PATH=$(find "$BUNDLE/dmg" -name '*.dmg' | head -1)
-          APP_PATH="$BUNDLE/macos/ClaudePrism.app"
+          APP_PATH="$BUNDLE/macos/AresPrism.app"
 
           if [ -z "$DMG_PATH" ]; then
             echo "Error: DMG not found"
@@ -388,7 +388,7 @@ jobs:
           TARGET="x86_64-apple-darwin"
           BUNDLE="apps/desktop/src-tauri/target/$TARGET/release/bundle"
           DMG_PATH=$(find "$BUNDLE/dmg" -name '*.dmg' | head -1)
-          APP_PATH="$BUNDLE/macos/ClaudePrism.app"
+          APP_PATH="$BUNDLE/macos/AresPrism.app"
 
           if [ -z "$DMG_PATH" ]; then
             echo "Error: DMG not found"
@@ -527,6 +527,18 @@ jobs:
             echo "tag=${{ inputs.release_tag }}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Protect published release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' > release-state.txt 2>/dev/null; then
+            if [ "$(cat release-state.txt)" = "false" ]; then
+              echo "Release $TAG is already published; refusing to overwrite its assets."
+              exit 1
+            fi
+          fi
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -546,23 +558,23 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          export BASE_URL="https://github.com/delibae/claude-prism/releases/download/$TAG"
+          export BASE_URL="https://github.com/Ares960826/AresPrism/releases/download/$TAG"
 
           node -e "
             const BASE = process.env.BASE_URL;
             const platforms = {};
             if (process.env.MAC_SIG)
-              platforms['darwin-aarch64'] = { signature: process.env.MAC_SIG, url: BASE + '/ClaudePrism-macOS.app.tar.gz' };
+              platforms['darwin-aarch64'] = { signature: process.env.MAC_SIG, url: BASE + '/AresPrism-macOS.app.tar.gz' };
             if (process.env.MAC_INTEL_SIG)
-              platforms['darwin-x86_64'] = { signature: process.env.MAC_INTEL_SIG, url: BASE + '/ClaudePrism-macOS-Intel.app.tar.gz' };
+              platforms['darwin-x86_64'] = { signature: process.env.MAC_INTEL_SIG, url: BASE + '/AresPrism-macOS-Intel.app.tar.gz' };
             if (process.env.LIN_SIG)
-              platforms['linux-x86_64'] = { signature: process.env.LIN_SIG, url: BASE + '/ClaudePrism-Linux.AppImage' };
+              platforms['linux-x86_64'] = { signature: process.env.LIN_SIG, url: BASE + '/AresPrism-Linux.AppImage' };
             if (process.env.WIN_SIG)
-              platforms['windows-x86_64'] = { signature: process.env.WIN_SIG, url: BASE + '/ClaudePrism-Windows-setup.exe' };
+              platforms['windows-x86_64'] = { signature: process.env.WIN_SIG, url: BASE + '/AresPrism-Windows-setup.exe' };
 
             const data = {
               version: '$VERSION',
-              notes: 'ClaudePrism $TAG',
+              notes: 'AresPrism $TAG',
               pub_date: '$PUB_DATE',
               platforms
             };
@@ -576,7 +588,7 @@ jobs:
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           gh release view "$TAG" > /dev/null 2>&1 || \
-            gh release create "$TAG" --title "ClaudePrism $TAG" --generate-notes --draft
+            gh release create "$TAG" --title "AresPrism $TAG" --generate-notes --draft
 
       - name: Rename and upload assets
         env:
@@ -587,18 +599,18 @@ jobs:
 
           # Rename platform artifacts to version-free names
           # macOS Apple Silicon (from desktop-macos artifact)
-          find artifacts/desktop-macos -name "*.dmg" 2>/dev/null | head -1 | xargs -I{} cp {} upload/ClaudePrism-macOS.dmg
-          find artifacts/desktop-macos -name "*.app.tar.gz" 2>/dev/null | head -1 | xargs -I{} cp {} upload/ClaudePrism-macOS.app.tar.gz
+          find artifacts/desktop-macos -name "*.dmg" 2>/dev/null | head -1 | xargs -I{} cp {} upload/AresPrism-macOS.dmg
+          find artifacts/desktop-macos -name "*.app.tar.gz" 2>/dev/null | head -1 | xargs -I{} cp {} upload/AresPrism-macOS.app.tar.gz
           # macOS Intel (from desktop-macos-intel artifact)
-          find artifacts/desktop-macos-intel -name "*.dmg" 2>/dev/null | head -1 | xargs -I{} cp {} upload/ClaudePrism-macOS-Intel.dmg
-          find artifacts/desktop-macos-intel -name "*.app.tar.gz" 2>/dev/null | head -1 | xargs -I{} cp {} upload/ClaudePrism-macOS-Intel.app.tar.gz
+          find artifacts/desktop-macos-intel -name "*.dmg" 2>/dev/null | head -1 | xargs -I{} cp {} upload/AresPrism-macOS-Intel.dmg
+          find artifacts/desktop-macos-intel -name "*.app.tar.gz" 2>/dev/null | head -1 | xargs -I{} cp {} upload/AresPrism-macOS-Intel.app.tar.gz
           # Windows
-          find artifacts/desktop-windows -name "*-setup.exe" 2>/dev/null | head -1 | xargs -I{} cp {} upload/ClaudePrism-Windows-setup.exe
-          find artifacts/desktop-windows -name "*.msi" 2>/dev/null | head -1 | xargs -I{} cp {} upload/ClaudePrism-Windows.msi
+          find artifacts/desktop-windows -name "*-setup.exe" 2>/dev/null | head -1 | xargs -I{} cp {} upload/AresPrism-Windows-setup.exe
+          find artifacts/desktop-windows -name "*.msi" 2>/dev/null | head -1 | xargs -I{} cp {} upload/AresPrism-Windows.msi
           # Linux
-          find artifacts/desktop-linux -name "*.deb" 2>/dev/null | head -1 | xargs -I{} cp {} upload/ClaudePrism-Linux.deb
-          find artifacts/desktop-linux -name "*.rpm" 2>/dev/null | head -1 | xargs -I{} cp {} upload/ClaudePrism-Linux.rpm
-          find artifacts/desktop-linux -name "*.AppImage" 2>/dev/null | head -1 | xargs -I{} cp {} upload/ClaudePrism-Linux.AppImage
+          find artifacts/desktop-linux -name "*.deb" 2>/dev/null | head -1 | xargs -I{} cp {} upload/AresPrism-Linux.deb
+          find artifacts/desktop-linux -name "*.rpm" 2>/dev/null | head -1 | xargs -I{} cp {} upload/AresPrism-Linux.rpm
+          find artifacts/desktop-linux -name "*.AppImage" 2>/dev/null | head -1 | xargs -I{} cp {} upload/AresPrism-Linux.AppImage
 
           cp latest.json upload/
 

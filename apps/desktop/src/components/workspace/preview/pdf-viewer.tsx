@@ -1,3 +1,4 @@
+import { scrollPositionCache } from "@/lib/workspace-view-cache";
 import {
   useCallback,
   useRef,
@@ -8,10 +9,7 @@ import {
 import { LoaderIcon } from "lucide-react";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { ask } from "@tauri-apps/plugin-dialog";
-import {
-  getCachedDocument,
-  getOrOpenDocument,
-} from "@/lib/mupdf/pdf-doc-cache";
+import { acquireDocument } from "@/lib/mupdf/pdf-doc-cache";
 import { getMupdfClient } from "@/lib/mupdf/mupdf-client";
 import { findWordHighlight } from "@/lib/synctex-word-box";
 import { LOCAL_ZOOM_SHORTCUTS_ATTR } from "@/lib/app-zoom";
@@ -176,12 +174,6 @@ function findPageZoomAnchor(
   };
 }
 /** Module-level scroll position cache: rootFileId → page number */
-const scrollPositionCache = new Map<string, number>();
-
-/** Clear all cached scroll positions (e.g., on project close). */
-export function clearScrollPositionCache(): void {
-  scrollPositionCache.clear();
-}
 
 export interface PdfTextSelection {
   text: string;
@@ -438,8 +430,13 @@ export function PdfViewer({
 
   // Load document with MuPDF (using LRU doc cache)
   useEffect(() => {
+    if (!isActive) return;
     const gen = ++loadGenRef.current;
+    let cancelled = false;
+    let release: (() => void) | undefined;
     prevRootFileIdRef.current = rootFileId;
+    if (isFirstLoad.current && rootFileId)
+      savedPageRef.current = scrollPositionCache.get(rootFileId) ?? 0;
 
     const pdfData =
       data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
@@ -461,23 +458,6 @@ export function PdfViewer({
       return;
     }
 
-    // Fast path: synchronous cache check — avoids async gap, state churn, and re-renders
-    const syncResult = getCachedDocument(pdfData);
-    if (syncResult && syncResult.docId === docIdRef.current) {
-      // Same document already displayed — only restore scroll position on file switch
-      isFirstLoad.current = false;
-      if (rootFileId) {
-        const targetPage = scrollPositionCache.get(rootFileId) ?? 0;
-        if (targetPage > 0) {
-          requestAnimationFrame(() => {
-            const container = containerRef.current;
-            if (container) scrollToPage(container, targetPage);
-          });
-        }
-      }
-      return;
-    }
-
     // Save scroll position before reloading (for recompile of same file)
     if (containerRef.current && !isFirstLoad.current) {
       savedPageRef.current = getVisiblePage();
@@ -490,6 +470,7 @@ export function PdfViewer({
     const scrollToPageEl = (targetPage: number, maxAttempts = 30) => {
       const attempt = (remaining: number) => {
         const container = containerRef.current;
+        if (cancelled || gen !== loadGenRef.current) return;
         if (!container || remaining <= 0) {
           if (contentRef.current) contentRef.current.style.minHeight = "";
           return;
@@ -507,35 +488,18 @@ export function PdfViewer({
       requestAnimationFrame(() => attempt(maxAttempts));
     };
 
-    // Synchronous cache hit for a different doc (file switch to cached PDF)
-    if (syncResult) {
-      docIdRef.current = syncResult.docId;
-      setPageSizes(syncResult.pageSizes);
-      setLoading(false);
-
-      if (isFirstLoad.current && syncResult.pageSizes.length > 0) {
-        onFirstPageSize?.(
-          syncResult.pageSizes[0].width,
-          syncResult.pageSizes[0].height,
-        );
-      }
-      isFirstLoad.current = false;
-      onLoadSuccess?.(syncResult.pageSizes.length);
-
-      if (rootFileId) {
-        const targetPage = scrollPositionCache.get(rootFileId) ?? 0;
-        if (targetPage > 0) scrollToPageEl(targetPage);
-      }
-      return;
-    }
-
     // Cache miss — async path (first load or recompile with new content)
     setLoading(isFirstLoad.current);
 
     (async () => {
       try {
-        const { docId, pageSizes: sizes } = await getOrOpenDocument(pdfData);
-        if (gen !== loadGenRef.current) return;
+        const lease = await acquireDocument(pdfData);
+        if (cancelled || gen !== loadGenRef.current) {
+          lease.release();
+          return;
+        }
+        release = lease.release;
+        const { docId, pageSizes: sizes } = lease;
 
         docIdRef.current = docId;
         setPageSizes(sizes);
@@ -553,12 +517,17 @@ export function PdfViewer({
           scrollToPageEl(targetPage);
         }
       } catch (err) {
-        if (gen !== loadGenRef.current) return;
+        if (cancelled || gen !== loadGenRef.current) return;
         setLoading(false);
         onError?.(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+      ++loadGenRef.current;
+      release?.();
+    };
+  }, [data, isActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // IntersectionObserver for lazy page rendering — only when active
   useEffect(() => {
@@ -1300,7 +1269,7 @@ export function PdfViewer({
               scale={scale}
               pageWidth={size.width}
               pageHeight={size.height}
-              isVisible={visiblePages.has(i + 1)}
+              isVisible={isActive && visiblePages.has(i + 1)}
             />
             {highlights
               .filter((h) => h.page === i + 1)

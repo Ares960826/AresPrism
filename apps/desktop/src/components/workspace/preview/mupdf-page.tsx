@@ -101,6 +101,35 @@ export const MupdfPage = memo(function MupdfPage({
     renderPage();
   }, [docId, pageIndex, renderScale, isVisible, renderPage]);
 
+  useEffect(() => {
+    const release = () => {
+      if (isVisible) return;
+      const page = canvasRef.current?.parentElement;
+      const selection = window.getSelection();
+      if (
+        page &&
+        selection &&
+        !selection.isCollapsed &&
+        selection.containsNode(page, true)
+      )
+        return;
+      ++renderGenRef.current;
+      const canvas = canvasRef.current;
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      setTextData(null);
+      setLinks([]);
+    };
+    release();
+    document.addEventListener("selectionchange", release);
+    return () => {
+      ++renderGenRef.current;
+      document.removeEventListener("selectionchange", release);
+    };
+  }, [docId, isVisible]);
+
   // Text and link layers do not need to be refetched for every zoom change.
   useEffect(() => {
     if (!isVisible || docId <= 0) return;

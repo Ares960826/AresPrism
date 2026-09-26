@@ -1,3 +1,4 @@
+import { useHistoryStore } from "@/stores/history-store";
 import { invoke } from "@tauri-apps/api/core";
 import {
   resolveTexRoot,
@@ -64,6 +65,94 @@ export async function compileLatex(
   return result;
 }
 
+// All UI entry points share a bounded queue. A root has at most one queued
+// follow-up, and results belong to the project session that requested them.
+const jobs = new Map<string, Promise<void>>();
+let running = 0;
+const slots: Array<() => void> = [];
+async function takeSlot() {
+  if (running < 3) {
+    running++;
+    return;
+  }
+  await new Promise<void>((resolve) => slots.push(resolve));
+}
+function releaseSlot() {
+  const next = slots.shift();
+  if (next) next();
+  else running--;
+}
+
+export function requestCompile(
+  rootId: string,
+  targetPath: string,
+  force = false,
+  snapshot = false,
+): Promise<void> {
+  const initial = useDocumentStore.getState();
+  const { projectRoot, projectEpoch } = initial;
+  if (!projectRoot) return Promise.resolve();
+  const key = JSON.stringify([projectRoot, projectEpoch, rootId]);
+  const existing = jobs.get(key);
+  if (existing) {
+    // Coalesce repeated requests. Recheck after the running job, so edits made
+    // during compilation are saved and compiled exactly once more.
+    return existing.then(() => {
+      const latest = useDocumentStore.getState();
+      if (
+        latest.projectEpoch === projectEpoch &&
+        latest.lastCompiledGenerations.get(rootId) !== latest.contentGeneration
+      ) {
+        return requestCompile(rootId, targetPath, false, snapshot);
+      }
+    });
+  }
+  if (
+    !force &&
+    initial.lastCompiledGenerations.get(rootId) === initial.contentGeneration
+  )
+    return Promise.resolve();
+  const current = () =>
+    useDocumentStore.getState().projectEpoch === projectEpoch &&
+    useDocumentStore.getState().projectRoot === projectRoot;
+  initial.startCompile(rootId);
+  const job = (async () => {
+    await takeSlot();
+    try {
+      if (!current()) return;
+      await useDocumentStore.getState().saveAllFiles();
+      if (!current()) return;
+      const generation = useDocumentStore.getState().contentGeneration;
+      if (snapshot)
+        void useHistoryStore
+          .getState()
+          .createSnapshot(projectRoot, "[compile] Pre-compile")
+          .catch(() => {});
+      const settings = useSettingsStore.getState();
+      const data = await compileLatex(
+        projectRoot,
+        targetPath,
+        settings.compilerBackend,
+        settings.defaultEngine,
+      );
+      if (current())
+        useDocumentStore.getState().setPdfData(data, rootId, generation);
+    } catch (error) {
+      if (current())
+        useDocumentStore
+          .getState()
+          .setCompileError(formatCompileError(error), rootId);
+      throw error;
+    } finally {
+      releaseSlot();
+      jobs.delete(key);
+      if (current()) useDocumentStore.getState().endCompile(rootId);
+    }
+  })();
+  jobs.set(key, job);
+  return job;
+}
+
 export interface TexliveStatus {
   available: boolean;
   engines: string[];
@@ -100,29 +189,10 @@ export async function compileIndependentRoots(
   if (!state.projectRoot || roots.length === 0) {
     return { compiled: 0, failed: 0 };
   }
-  await state.saveAllFiles();
-  const settings = useSettingsStore.getState();
   const results = await Promise.allSettled(
-    roots.map(async ({ rootId, targetPath }) => {
-      state.startCompile(rootId);
-      try {
-        const data = await compileLatex(
-          state.projectRoot!,
-          targetPath,
-          settings.compilerBackend,
-          settings.defaultEngine,
-        );
-        useDocumentStore.getState().setPdfData(data, rootId);
-        useDocumentStore.getState().setPreviewRoot(rootId);
-      } catch (error) {
-        useDocumentStore
-          .getState()
-          .setCompileError(formatCompileError(error), rootId);
-        throw error;
-      } finally {
-        useDocumentStore.getState().endCompile(rootId);
-      }
-    }),
+    roots.map(({ rootId, targetPath }) =>
+      requestCompile(rootId, targetPath, true),
+    ),
   );
   return {
     compiled: results.filter((item) => item.status === "fulfilled").length,

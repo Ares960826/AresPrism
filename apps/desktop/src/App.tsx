@@ -1,3 +1,4 @@
+import { useSaveBeforeClose } from "@/hooks/use-save-before-close";
 import { ThemeProvider } from "next-themes";
 import { ErrorBoundary } from "react-error-boundary";
 import { Toaster } from "@/components/ui/sonner";
@@ -6,7 +7,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useDocumentStore } from "@/stores/document-store";
 import { useClaudeChatStore } from "@/stores/claude-chat-store";
 import { ProjectPicker } from "@/components/project-picker";
-import { WorkspaceLayout } from "@/components/workspace/workspace-layout";
+
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -17,11 +18,22 @@ import { createLogger } from "@/lib/debug/logger";
 import { EnvironmentOnboarding } from "@/components/environment-onboarding";
 import { AppearanceBridge } from "@/components/appearance-bridge";
 import { NativeWindowThemeBridge } from "@/components/native-window-theme-bridge";
-import { SettingsDialog } from "@/components/settings-dialog";
+import { useSettingsStore } from "@/stores/settings-store";
 import { UpdateNotifier } from "@/components/update-notifier";
 import { useMainPaneBridge } from "@/hooks/use-main-pane-bridge";
 import { useLayoutStore } from "@/stores/layout-store";
 import { APP_NAME } from "@/lib/app-identity";
+
+const WorkspaceLayout = lazy(() =>
+  import("@/components/workspace/workspace-layout").then((m) => ({
+    default: m.WorkspaceLayout,
+  })),
+);
+const SettingsDialog = lazy(() =>
+  import("@/components/settings-dialog").then((m) => ({
+    default: m.SettingsDialog,
+  })),
+);
 
 const log = createLogger("app");
 
@@ -142,16 +154,29 @@ function WorkspaceWithClaude() {
     return () => clearTimeout(timer);
   }, [initialized]);
 
-  return <WorkspaceLayout />;
+  return (
+    <Suspense
+      fallback={
+        <div className="grid h-screen place-items-center text-muted-foreground text-sm">
+          Opening workspace…
+        </div>
+      }
+    >
+      <WorkspaceLayout />
+    </Suspense>
+  );
 }
 
 export function App({ onReady }: { onReady?: () => void }) {
   const projectRoot = useDocumentStore((s) => s.projectRoot);
+  const settingsOpen = useSettingsStore((s) => s.settingsOpen);
+  const saveError = useDocumentStore((s) => s.saveError);
   const [showDebug, setShowDebug] = useState(false);
 
   // Register global keyboard shortcuts (Cmd+S, Cmd+N) at the app level
   useKeyboardShortcuts();
   useMainPaneBridge();
+  useSaveBeforeClose();
 
   useEffect(() => {
     const preventNativeContextMenu = (event: MouseEvent) => {
@@ -195,7 +220,11 @@ export function App({ onReady }: { onReady?: () => void }) {
         <TooltipProvider>
           <NativeWindowThemeBridge />
           <AppearanceBridge />
-          <SettingsDialog />
+          {settingsOpen && (
+            <Suspense fallback={null}>
+              <SettingsDialog />
+            </Suspense>
+          )}
           <UpdateNotifier />
           {/* Global macOS titlebar drag region — sits above all content */}
           <div
@@ -232,6 +261,25 @@ export function App({ onReady }: { onReady?: () => void }) {
                   </Suspense>
                 </div>
               </div>
+            </div>
+          )}
+          {saveError && (
+            <div
+              role="alert"
+              className="fixed bottom-4 left-1/2 z-[10000] max-w-[90vw] -translate-x-1/2 rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm shadow-lg"
+            >
+              <span className="text-destructive">{saveError}</span>
+              <button
+                className="ml-4 rounded px-2 py-1 font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() =>
+                  void useDocumentStore
+                    .getState()
+                    .saveAllFiles()
+                    .catch(() => {})
+                }
+              >
+                Retry save
+              </button>
             </div>
           )}
           <Toaster />

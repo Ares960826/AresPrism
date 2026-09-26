@@ -1,4 +1,5 @@
 /** Independent OS windows for Preview / AI. Query `?pane=` selects the child UI. */
+import type { CompilerBackend, TexEnginePref } from "@/stores/settings-store";
 
 export type DetachedPane = "preview" | "chat";
 
@@ -96,6 +97,9 @@ export interface PreviewPaneSnapshot {
   openFileIds: string[];
   pdfRootId: string | null;
   pdfRevision: number;
+  pdfContentRevision?: number;
+  full?: boolean;
+  removedFileIds?: string[];
   compileError: string | null;
   isCompiling: boolean;
 }
@@ -106,7 +110,39 @@ export interface SynctexJumpPayload {
   column: number;
 }
 
+export interface PreviewCompilePayload {
+  projectRoot: string;
+  activeFileId: string;
+  force: boolean;
+  compilerBackend: CompilerBackend;
+  defaultEngine: TexEnginePref;
+}
+
 export interface ChatCallPayload {
   name: ChatRelayAction;
   args: unknown[];
+}
+
+/** Apply transport deltas without rebuilding unchanged file records. */
+export function mergePreviewSnapshot(
+  previous: PreviewPaneSnapshot | null,
+  next: PreviewPaneSnapshot,
+): PreviewPaneSnapshot {
+  if (
+    !previous ||
+    next.full !== false ||
+    previous.projectRoot !== next.projectRoot
+  )
+    return next;
+  const changed = new Map(next.files.map((file) => [file.id, file]));
+  const removed = new Set(next.removedFileIds);
+  const files = previous.files
+    .filter((file) => !removed.has(file.id))
+    .map((file) => {
+      const update = changed.get(file.id);
+      changed.delete(file.id);
+      return update ?? file;
+    });
+  files.push(...changed.values());
+  return { ...next, files };
 }

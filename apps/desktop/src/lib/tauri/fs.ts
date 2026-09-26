@@ -29,6 +29,7 @@ export interface FsProjectFile {
   absolutePath: string;
   type: ProjectFileType;
   fileSize: number;
+  modifiedMs?: number;
 }
 
 /** Files larger than this (1 MB) are not auto-loaded into memory during project open. */
@@ -142,22 +143,21 @@ export async function scanProjectFolder(rootPath: string): Promise<ScanResult> {
       } else {
         const type = getProjectFileType(entry.name);
         if (type) {
-          // Only stat files that may be skipped by the large-file threshold
-          // (image and other). tex/bib/style are always loaded, pdf is always lazy.
           let fileSize = 0;
-          if (type === "image" || type === "other") {
-            try {
-              const info = await stat(entryPath);
-              fileSize = info.size;
-            } catch {
-              /* stat failed — treat as 0 */
-            }
+          let modifiedMs: number | undefined;
+          try {
+            const info = await stat(entryPath);
+            fileSize = info.size;
+            modifiedMs = info.mtime?.getTime();
+          } catch {
+            /* Unknown metadata forces a safe content refresh. */
           }
           files.push({
             relativePath,
             absolutePath: entryPath,
             type,
             fileSize,
+            modifiedMs,
           });
         }
       }

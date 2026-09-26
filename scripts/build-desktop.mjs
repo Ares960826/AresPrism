@@ -67,6 +67,8 @@ if (!env.TAURI_SIGNING_PRIVATE_KEY) {
   args.push("--config", "src-tauri/tauri.local-build.conf.json");
 }
 
+args.push(...process.argv.slice(2));
+
 const child =
   process.platform === "win32"
     ? spawn(

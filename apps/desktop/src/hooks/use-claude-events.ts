@@ -10,13 +10,8 @@ import {
 import { useDocumentStore } from "@/stores/document-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { useProposedChangesStore } from "@/stores/proposed-changes-store";
-import { useSettingsStore } from "@/stores/settings-store";
 import { readTexFileContent } from "@/lib/tauri/fs";
-import {
-  compileLatex,
-  resolveCompileTarget,
-  formatCompileError,
-} from "@/lib/latex-compiler";
+import { requestCompile, resolveCompileTarget } from "@/lib/latex-compiler";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("claude-event");
@@ -480,41 +475,13 @@ export function useClaudeEvents() {
         return;
       }
 
-      // Auto-recompile after Claude finishes
-      const {
-        projectRoot,
-        files,
-        activeFileId,
-        isCompiling: alreadyCompiling,
-      } = useDocumentStore.getState();
-      if (projectRoot && !alreadyCompiling) {
-        const resolved = resolveCompileTarget(activeFileId, files);
-        if (resolved) {
-          const { rootId, targetPath } = resolved;
-          useDocumentStore.getState().setIsCompiling(true);
-          useDocumentStore.getState().setPendingRecompile(false);
-          try {
-            await useDocumentStore.getState().saveAllFiles();
-            const settings = useSettingsStore.getState();
-            const pdfData = await compileLatex(
-              projectRoot,
-              targetPath,
-              settings.compilerBackend,
-              settings.defaultEngine,
-            );
-            useDocumentStore.getState().setPdfData(pdfData, rootId);
-          } catch (err) {
-            useDocumentStore
-              .getState()
-              .setCompileError(formatCompileError(err), rootId);
-          } finally {
-            useDocumentStore.getState().setIsCompiling(false);
-          }
-        }
-      } else if (alreadyCompiling) {
-        // Queue recompile — it will run when the current compile finishes
-        useDocumentStore.getState().setPendingRecompile(true);
-        log.info("queued post-Claude recompile — already compiling");
+      // Share the same queue and project-session guards as manual compilation.
+      const state = useDocumentStore.getState();
+      const resolved = resolveCompileTarget(state.activeFileId, state.files);
+      if (state.projectRoot && resolved) {
+        await requestCompile(resolved.rootId, resolved.targetPath).catch(
+          () => {},
+        );
       }
     }
 

@@ -23,6 +23,7 @@ AresPrism uses its own SemVer. It does not continue ClaudePrism’s 1.x numbers.
 | **0.10.2** | In-app auto and manual updates from GitHub |
 | **0.10.3** | Close PDF tab with its editor main file; split local CLI vs API keys |
 | **0.10.4** | Preview and AI float as real OS windows that can leave the main app |
+| **0.10.5** | Reliable saving, nested/parallel compilation, floating preview, and PDF resource ownership |
 | 0.x.y | Ongoing work. Patch `y` for fixes; minor `x` for user-visible features |
 | 1.0.0 | When this app is the daily driver for paper writing |
 

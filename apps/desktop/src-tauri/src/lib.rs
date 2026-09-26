@@ -21,6 +21,7 @@ use tauri_plugin_fs::FsExt;
 const APP_DISPLAY_NAME: &str = "AresPrism";
 /// Default projects folder under Documents. Distinct from upstream "ClaudePrism".
 const DEFAULT_PROJECTS_DIR_NAME: &str = "AresPrism";
+static REQUESTED_EXIT_CODE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// Entry point for the `--tectonic-compile` subprocess mode.
 /// Runs tectonic compilation in an isolated process so that C-level global state
@@ -638,7 +639,32 @@ pub fn run() {
         .manage(latex::LatexCompilerState::default())
         .manage(zotero::ZoteroOAuthState::default())
         .manage(zotero_local::ZoteroLocalState::default())
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "ares-save-and-quit" {
+                app.exit(0);
+            }
+        })
         .setup(|app| {
+            // Cocoa's predefined Quit terminates before the asynchronous JS
+            // save handshake. Route the same menu item/shortcut through Tauri.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::{Menu, MenuItem, MenuItemKind};
+                let menu = Menu::default(app.handle())?;
+                if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.first() {
+                    if let Some(quit) = app_menu.items()?.last() {
+                        app_menu.remove(quit)?;
+                        app_menu.append(&MenuItem::with_id(
+                            app,
+                            "ares-save-and-quit",
+                            "Quit AresPrism",
+                            true,
+                            Some("CmdOrCtrl+Q"),
+                        )?)?;
+                    }
+                }
+                app.set_menu(menu)?;
+            }
             // Safety net: force-show the main window after a timeout if the
             // frontend JS never calls `getCurrentWindow().show()`.
             // This prevents the window from staying permanently hidden when
@@ -679,6 +705,7 @@ pub fn run() {
             js_log,
             read_clipboard_file_paths,
             latex::compile_latex,
+            latex::read_compiled_pdf,
             latex::synctex_edit,
             latex::synctex_view,
             latex::detect_texlive,
@@ -818,10 +845,32 @@ pub fn run() {
 
                 // Quit the app when the last window is closed
                 if app_handle.webview_windows().is_empty() {
-                    app_handle.exit(0);
+                    app_handle.exit(REQUESTED_EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed));
                 }
             }
-            tauri::RunEvent::ExitRequested { .. } => {
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
+                eprintln!(
+                    "[exit] requested code={code:?}, windows={}",
+                    app_handle.webview_windows().len()
+                );
+                {
+                    let windows = app_handle.webview_windows();
+                    let editors: Vec<_> = windows
+                        .values()
+                        .filter(|window| {
+                            window.label() == "main" || window.label().starts_with("window-")
+                        })
+                        .collect();
+                    if !editors.is_empty() {
+                        REQUESTED_EXIT_CODE
+                            .store(code.unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
+                        api.prevent_exit();
+                        for window in editors {
+                            let _ = window.emit("ares:save-before-quit", ());
+                        }
+                        return;
+                    }
+                }
                 // Clean up LaTeX build temp directories
                 let latex_state = app_handle.state::<latex::LatexCompilerState>();
                 let state_clone = latex_state.inner().clone();

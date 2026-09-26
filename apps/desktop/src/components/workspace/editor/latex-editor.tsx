@@ -1,3 +1,4 @@
+import { editorStateCache } from "@/lib/workspace-view-cache";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { Compartment, EditorState, Prec, Transaction } from "@codemirror/state";
 import {
@@ -53,11 +54,7 @@ import {
   type PromptContextOverride,
 } from "@/stores/claude-chat-store";
 import { useHistoryStore, type FileDiff } from "@/stores/history-store";
-import {
-  compileLatex,
-  resolveCompileTarget,
-  formatCompileError,
-} from "@/lib/latex-compiler";
+import { requestCompile, resolveCompileTarget } from "@/lib/latex-compiler";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useSyncTexStore } from "@/stores/synctex-store";
 import { EditorToolbar } from "./editor-toolbar";
@@ -97,17 +94,6 @@ function getActiveFileContent(): string {
   return activeFile?.content ?? "";
 }
 
-/** Per-file editor state cache: fileId → { cursor, scrollTop } */
-const editorStateCache = new Map<
-  string,
-  { cursor: number; scrollTop: number }
->();
-
-/** Clear editor state cache (e.g., on project close). */
-export function clearEditorStateCache(): void {
-  editorStateCache.clear();
-}
-
 export function LatexEditor() {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -131,11 +117,6 @@ export function LatexEditor() {
   synctexDblClickRef.current = synctexDblClickLocate;
   const applyingPdfJumpRef = useRef(false);
   const followTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const setIsCompiling = useDocumentStore((s) => s.setIsCompiling);
-  const setPdfData = useDocumentStore((s) => s.setPdfData);
-  const setCompileError = useDocumentStore((s) => s.setCompileError);
-  const saveAllFiles = useDocumentStore((s) => s.saveAllFiles);
 
   const activeFile = files.find((f) => f.id === activeFileId);
   const isTextFile =
@@ -338,12 +319,15 @@ export function LatexEditor() {
     const flushSnapshot = () => {
       const state = useDocumentStore.getState();
       if (!state.projectRoot) return;
-      void state.saveAllFiles().then(() => {
-        useHistoryStore
-          .getState()
-          .createSnapshot(state.projectRoot!, "[auto] Idle")
-          .catch(() => {});
-      });
+      void state
+        .saveAllFiles()
+        .then(() => {
+          useHistoryStore
+            .getState()
+            .createSnapshot(state.projectRoot!, "[auto] Idle")
+            .catch(() => {});
+        })
+        .catch(() => {});
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") flushSnapshot();
@@ -415,59 +399,19 @@ export function LatexEditor() {
     }
   };
 
-  // Compile: save all files first, then compile via Tauri command
+  // Keyboard and toolbar compilation use the same queue as all previews.
   compileRef.current = async () => {
     const state = useDocumentStore.getState();
-    if (!projectRoot || activeFile?.type !== "tex") return;
-    if (state.isCompiling) {
-      // Queue a recompile after the current one finishes
-      state.setPendingRecompile(true);
-      return;
-    }
-    const { files: allFiles } = state;
-    const resolved = resolveCompileTarget(activeFile.id, allFiles);
-    if (!resolved) {
-      setCompileError(
-        "No .tex file found in this project. Create a main.tex file to compile.",
-        activeFile.id,
-      );
-      return;
-    }
-    const { rootId, targetPath } = resolved;
+    if (!state.projectRoot || activeFile?.type !== "tex") return;
+    const resolved = resolveCompileTarget(activeFile.id, state.files);
+    if (!resolved) return;
     useHistoryStore.getState().stopReview();
-    setIsCompiling(true);
-    state.setPendingRecompile(false);
-    const compileStart = Date.now();
-    try {
-      await saveAllFiles();
-      // Pre-compile snapshot (fire-and-forget to avoid blocking compilation start)
-      useHistoryStore
-        .getState()
-        .createSnapshot(projectRoot, "[compile] Pre-compile")
-        .catch(() => {});
-      const settings = useSettingsStore.getState();
-      const data = await compileLatex(
-        projectRoot,
-        targetPath,
-        settings.compilerBackend,
-        settings.defaultEngine,
-      );
-      setPdfData(data, rootId);
-    } catch (error) {
-      setCompileError(formatCompileError(error), rootId);
-    } finally {
-      // Ensure the spinner is visible for at least 500ms for visual feedback
-      const elapsed = Date.now() - compileStart;
-      if (elapsed < 500) {
-        await new Promise((r) => setTimeout(r, 500 - elapsed));
-      }
-      setIsCompiling(false);
-      // If a recompile was requested while we were compiling, trigger it now
-      // Use setTimeout to avoid unbounded recursion on the call stack
-      if (useDocumentStore.getState().pendingRecompile) {
-        setTimeout(() => compileRef.current?.(), 0);
-      }
-    }
+    await requestCompile(
+      resolved.rootId,
+      resolved.targetPath,
+      true,
+      true,
+    ).catch(() => {});
   };
 
   useEffect(() => {
@@ -641,6 +585,7 @@ export function LatexEditor() {
             state.setIsSaving(true);
             state
               .saveCurrentFile()
+              .catch(() => {})
               .finally(() => setTimeout(() => state.setIsSaving(false), 500));
             return true;
           },

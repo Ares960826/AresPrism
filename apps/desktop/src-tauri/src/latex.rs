@@ -18,6 +18,8 @@ use std::os::windows::process::CommandExt;
 struct BuildInfo {
     work_dir: PathBuf,
     main_file_name: String,
+    source_prefix: PathBuf,
+    synctex_index: Arc<std::sync::Mutex<Option<Arc<SynctexIndex>>>>,
 }
 
 #[derive(Clone)]
@@ -443,10 +445,22 @@ fn jobname_from_main_file(main_file: &str) -> String {
             }
         })
         .collect();
-    if safe.is_empty() {
-        "document".to_string()
+    let safe = if safe.is_empty() { "document" } else { &safe };
+    if Path::new(main_file)
+        .parent()
+        .is_none_or(|parent| parent.as_os_str().is_empty())
+    {
+        safe.to_string()
     } else {
-        safe
+        // Several subprojects commonly contain main.tex. Keep their build
+        // artifacts separate without creating an unbounded directory name.
+        let hash = main_file
+            .as_bytes()
+            .iter()
+            .fold(0xcbf29ce484222325_u64, |h, byte| {
+                (h ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+            });
+        format!("{safe}-{hash:016x}")
     }
 }
 
@@ -905,6 +919,7 @@ fn synctex_file_matches(input_path: &str, wanted: &str) -> bool {
 }
 
 /// Parse synctex data and find the source location closest to (target_x, target_y) on target_page.
+#[cfg(test)]
 fn parse_synctex_data(
     data: &str,
     target_page: u32,
@@ -1083,12 +1098,13 @@ pub async fn compile_latex(
     backend: Option<String>,
     engine: Option<String>,
 ) -> Result<tauri::ipc::Response, String> {
-    // Acquire semaphore permit (non-blocking)
+    // Queue across all windows instead of rejecting normal bursts.
     let _permit = state
         .semaphore
         .clone()
-        .try_acquire_owned()
-        .map_err(|_| "Server busy, too many concurrent compilations".to_string())?;
+        .acquire_owned()
+        .await
+        .map_err(|_| "Compiler queue closed".to_string())?;
 
     // Lock per (project, main file) so independent documents can compile together.
     let lock_key = format!("{}::{main_file}", project_dir);
@@ -1105,14 +1121,22 @@ pub async fn compile_latex(
     let mut compile_backend = parse_compile_backend(backend.as_deref(), use_texlive);
     let preferred_engine = parse_engine_pref(engine.as_deref());
 
-    let main_file_name = Path::new(&main_file)
+    let main_path = Path::new(&main_file);
+    let main_file_name = main_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("document")
         .to_string();
+    let source_prefix = main_path.parent().unwrap_or(Path::new("")).to_path_buf();
+    let compile_main = main_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid main TeX file name")?
+        .to_string();
 
     // Set up build directory (offload blocking I/O to avoid starving the async runtime)
     let work_dir = persistent_build_dir_for(&project_dir, &main_file);
+    let compile_dir = work_dir.join(&source_prefix);
     let is_reuse = work_dir.exists();
 
     {
@@ -1150,11 +1174,11 @@ pub async fn compile_latex(
     );
 
     // Remove stale PDF so a failed compile doesn't return the previous result.
-    let pdf_path = work_dir.join(format!("{}.pdf", main_file_name));
+    let pdf_path = compile_dir.join(format!("{}.pdf", main_file_name));
     let _ = std::fs::remove_file(&pdf_path);
 
     // Verify the main TeX file exists before attempting compilation
-    let main_tex_path = work_dir.join(&main_file);
+    let main_tex_path = compile_dir.join(&compile_main);
     if !main_tex_path.exists() {
         return Err(format!(
             "Compilation failed\n\nNo .tex file found: \"{}\". Create a document.tex or main.tex file to compile.",
@@ -1199,8 +1223,8 @@ pub async fn compile_latex(
 
     let compile_result = match compile_backend {
         CompileBackend::Texlive => {
-            let work_dir_clone = work_dir.clone();
-            let main_file_clone = main_file.clone();
+            let work_dir_clone = compile_dir.clone();
+            let main_file_clone = compile_main.clone();
             let result = tokio::task::spawn_blocking(move || {
                 lower_thread_priority();
                 compile_with_texlive(&work_dir_clone, &main_file_clone, engine, &main_tex_content)
@@ -1215,8 +1239,8 @@ pub async fn compile_latex(
             result
         }
         CompileBackend::Latexmk => {
-            let work_dir_clone = work_dir.clone();
-            let main_file_clone = main_file.clone();
+            let work_dir_clone = compile_dir.clone();
+            let main_file_clone = compile_main.clone();
             let result = tokio::task::spawn_blocking(move || {
                 lower_thread_priority();
                 compile_with_latexmk(&work_dir_clone, &main_file_clone, engine)
@@ -1232,8 +1256,8 @@ pub async fn compile_latex(
         }
         CompileBackend::Tectonic => {
             // Isolate C-level global state (font cache, etc.) in a subprocess.
-            let work_dir_clone = work_dir.clone();
-            let main_file_clone = main_file.clone();
+            let work_dir_clone = compile_dir.clone();
+            let main_file_clone = compile_main.clone();
             let result = tokio::task::spawn_blocking(move || {
                 lower_thread_priority();
                 compile_with_tectonic_subprocess(&work_dir_clone, &main_file_clone)
@@ -1249,16 +1273,16 @@ pub async fn compile_latex(
         }
     };
 
-    let log_path = work_dir.join(format!("{}.log", main_file_name));
+    let log_path = compile_dir.join(format!("{}.log", main_file_name));
 
     // Handle "No pages of output" — retry with \AtEndDocument{\null} injection (Tectonic only).
     // TeXLive multi-pass handles this differently; the injection is Tectonic-specific.
     if compile_backend == CompileBackend::Tectonic && !pdf_path.exists() {
         let log_path_clone = log_path.clone();
-        let main_tex = work_dir.join(&main_file);
+        let main_tex = compile_dir.join(&compile_main);
         let pdf_path_clone = pdf_path.clone();
-        let main_file_clone = main_file.clone();
-        let work_dir_clone = work_dir.clone();
+        let main_file_clone = compile_main.clone();
+        let work_dir_clone = compile_dir.clone();
 
         let needs_retry = tokio::task::spawn_blocking(move || {
             let log_content = std::fs::read_to_string(&log_path_clone).unwrap_or_default();
@@ -1300,8 +1324,10 @@ pub async fn compile_latex(
     {
         let mut builds = state.last_builds.lock().await;
         let info = BuildInfo {
-            work_dir: work_dir.clone(),
+            work_dir: compile_dir.clone(),
             main_file_name: main_file_name.clone(),
+            source_prefix,
+            synctex_index: Arc::new(std::sync::Mutex::new(None)),
         };
         builds.insert(project_dir.clone(), info.clone());
         builds.insert(format!("{}::{main_file}", project_dir), info);
@@ -1336,6 +1362,58 @@ pub async fn compile_latex(
     }
 }
 
+/// Read only a PDF produced by a known build; child windows do not need a
+/// broad filesystem scope for hidden build directories.
+#[tauri::command]
+pub async fn read_compiled_pdf(
+    state: tauri::State<'_, LatexCompilerState>,
+    project_dir: String,
+    main_file: String,
+) -> Result<tauri::ipc::Response, String> {
+    let path = {
+        let builds = state.last_builds.lock().await;
+        let build = builds
+            .get(&format!("{project_dir}::{main_file}"))
+            .ok_or("No compiled PDF is available for this document")?;
+        build.work_dir.join(format!("{}.pdf", build.main_file_name))
+    };
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+fn build_synctex_index(build: &BuildInfo) -> Result<Arc<SynctexIndex>, String> {
+    let mut cached = build
+        .synctex_index
+        .lock()
+        .map_err(|_| "SyncTeX cache unavailable")?;
+    if let Some(index) = cached.as_ref() {
+        return Ok(index.clone());
+    }
+    let gz = build
+        .work_dir
+        .join(format!("{}.synctex.gz", build.main_file_name));
+    let plain = build
+        .work_dir
+        .join(format!("{}.synctex", build.main_file_name));
+    let data = if gz.exists() {
+        let compressed = std::fs::read(gz).map_err(|e| e.to_string())?;
+        let mut decoder = flate2::read::GzDecoder::new(&compressed[..]);
+        let mut data = String::new();
+        decoder
+            .read_to_string(&mut data)
+            .map_err(|e| e.to_string())?;
+        data
+    } else {
+        std::fs::read_to_string(plain).map_err(|e| format!("No readable SyncTeX data: {e}"))?
+    };
+    let index = Arc::new(parse_synctex_index(&data));
+    *cached = Some(index.clone());
+    Ok(index)
+}
+
 #[tauri::command]
 pub async fn synctex_edit(
     state: tauri::State<'_, LatexCompilerState>,
@@ -1355,41 +1433,19 @@ pub async fn synctex_edit(
         .or_else(|| builds.get(&project_dir))
         .ok_or("No build found for this project")?;
 
-    let synctex_gz = build
-        .work_dir
-        .join(format!("{}.synctex.gz", build.main_file_name));
-    let synctex_plain = build
-        .work_dir
-        .join(format!("{}.synctex", build.main_file_name));
-
+    let build = build.clone();
     let work_dir = build.work_dir.clone();
-    drop(builds); // Release lock before I/O
-
-    // Read, decompress, and parse synctex data (blocking I/O + CPU work → offload)
+    let source_prefix = build.source_prefix.clone();
+    drop(builds);
     let (mut file, line, column) = tokio::task::spawn_blocking(move || {
-        let synctex_data = if synctex_gz.exists() {
-            let compressed = std::fs::read(&synctex_gz)
-                .map_err(|e| format!("Failed to read synctex.gz: {}", e))?;
-            let mut decoder = flate2::read::GzDecoder::new(&compressed[..]);
-            let mut data = String::new();
-            decoder
-                .read_to_string(&mut data)
-                .map_err(|e| format!("Failed to decompress synctex: {}", e))?;
-            Ok::<_, String>(data)
-        } else if synctex_plain.exists() {
-            std::fs::read_to_string(&synctex_plain)
-                .map_err(|e| format!("Failed to read synctex: {}", e))
-        } else {
-            Err("No synctex data found. Recompile with synctex enabled.".to_string())
-        }?;
-
-        parse_synctex_data(&synctex_data, page, x, y)
+        let index = build_synctex_index(&build)?;
+        synctex_edit_lookup(&index, page, x, y)
             .ok_or_else(|| "Could not resolve source location".to_string())
     })
     .await
-    .map_err(|e| format!("Synctex task panicked: {}", e))??;
+    .map_err(|e| format!("SyncTeX task panicked: {e}"))??;
 
-    file = strip_synctex_workdir_prefix(&file, &work_dir);
+    file = synctex_source_to_project(&file, &work_dir, &source_prefix);
 
     Ok(SynctexResult { file, line, column })
 }
@@ -1401,6 +1457,23 @@ fn strip_synctex_workdir_prefix(file: &str, work_dir: &Path) -> String {
         file = rest.to_string();
     }
     normalize_synctex_path(&file)
+}
+
+fn synctex_source_to_project(file: &str, work_dir: &Path, source_prefix: &Path) -> String {
+    let file = strip_synctex_workdir_prefix(file, work_dir);
+    if Path::new(&file).is_absolute() || source_prefix.as_os_str().is_empty() {
+        file
+    } else {
+        normalize_synctex_path(&source_prefix.join(file).to_string_lossy())
+    }
+}
+
+fn project_source_to_compile(file: &str, source_prefix: &Path) -> String {
+    Path::new(file)
+        .strip_prefix(source_prefix)
+        .unwrap_or(Path::new(file))
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[tauri::command]
@@ -1421,37 +1494,16 @@ pub async fn synctex_view(
         .or_else(|| builds.get(&project_dir))
         .ok_or("No build found for this project")?;
 
-    let synctex_gz = build
-        .work_dir
-        .join(format!("{}.synctex.gz", build.main_file_name));
-    let synctex_plain = build
-        .work_dir
-        .join(format!("{}.synctex", build.main_file_name));
+    let build = build.clone();
     drop(builds);
-
     let (page, x, y, width, height) = tokio::task::spawn_blocking(move || {
-        let synctex_data = if synctex_gz.exists() {
-            let compressed = std::fs::read(&synctex_gz)
-                .map_err(|e| format!("Failed to read synctex.gz: {}", e))?;
-            let mut decoder = flate2::read::GzDecoder::new(&compressed[..]);
-            let mut data = String::new();
-            decoder
-                .read_to_string(&mut data)
-                .map_err(|e| format!("Failed to decompress synctex: {}", e))?;
-            Ok::<_, String>(data)
-        } else if synctex_plain.exists() {
-            std::fs::read_to_string(&synctex_plain)
-                .map_err(|e| format!("Failed to read synctex: {}", e))
-        } else {
-            Err("No synctex data found. Recompile with synctex enabled.".to_string())
-        }?;
-
-        let index = parse_synctex_index(&synctex_data);
-        synctex_view_lookup(&index, &file, line)
+        let index = build_synctex_index(&build)?;
+        let compile_file = project_source_to_compile(&file, &build.source_prefix);
+        synctex_view_lookup(&index, &compile_file, line)
             .ok_or_else(|| "Could not resolve PDF location".to_string())
     })
     .await
-    .map_err(|e| format!("Synctex view task panicked: {}", e))??;
+    .map_err(|e| format!("SyncTeX task panicked: {e}"))??;
 
     Ok(SynctexViewResult {
         page,
@@ -1474,6 +1526,46 @@ mod tests {
     use super::*;
 
     // --- detect_bib_tool ---
+
+    #[test]
+    fn nested_synctex_paths_round_trip_to_project_files() {
+        let work_dir = Path::new("/project/.prism/build/main-123/paper-a");
+        let source_prefix = Path::new("paper-a");
+        let source = synctex_source_to_project(
+            "/project/.prism/build/main-123/paper-a/./sections/intro.tex",
+            work_dir,
+            source_prefix,
+        );
+        assert_eq!(source, "paper-a/sections/intro.tex");
+        assert_eq!(
+            project_source_to_compile(&source, source_prefix),
+            "sections/intro.tex"
+        );
+    }
+
+    #[test]
+    fn synctex_cache_reuses_index_until_next_build() {
+        let root = std::env::temp_dir().join(format!("ares-synctex-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("main.synctex");
+        std::fs::write(&path, "Input:1:main.tex\n").unwrap();
+        let build = BuildInfo {
+            work_dir: root.clone(),
+            main_file_name: "main".into(),
+            source_prefix: PathBuf::new(),
+            synctex_index: Arc::new(std::sync::Mutex::new(None)),
+        };
+        let first = build_synctex_index(&build).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let cached = build_synctex_index(&build).unwrap();
+        assert!(Arc::ptr_eq(&first, &cached));
+        let next = BuildInfo {
+            synctex_index: Arc::new(std::sync::Mutex::new(None)),
+            ..build
+        };
+        assert!(build_synctex_index(&next).is_err());
+        let _ = std::fs::remove_dir(&root);
+    }
 
     #[test]
     fn test_detect_bib_tool_biber() {
@@ -2078,6 +2170,111 @@ Postamble:
     fn test_persistent_build_dir_trailing_slash() {
         let dir = persistent_build_dir("/project/");
         assert_eq!(dir, PathBuf::from("/project/.prism/build"));
+    }
+
+    #[test]
+    fn nested_main_files_have_separate_build_directories() {
+        let first = persistent_build_dir_for("/project", "draft-a/main.tex");
+        let second = persistent_build_dir_for("/project", "draft-b/main.tex");
+        assert_ne!(first, second);
+        assert_eq!(
+            persistent_build_dir_for("/project", "main.tex"),
+            PathBuf::from("/project/.prism/build/main")
+        );
+    }
+
+    #[test]
+    fn texlive_compiles_nested_main_with_relative_input() {
+        if find_texlive_binary("pdflatex").is_err() {
+            return;
+        }
+        let source = tempfile::tempdir().unwrap();
+        let project = source.path().join("paper-a");
+        std::fs::create_dir_all(project.join("sections")).unwrap();
+        let main = "\\documentclass{article}\n\\begin{document}\n\\input{sections/intro}\n\\end{document}\n";
+        std::fs::write(project.join("main.tex"), main).unwrap();
+        std::fs::write(project.join("sections/intro.tex"), "Nested source works.\n").unwrap();
+        let build = tempfile::tempdir().unwrap();
+        copy_dir_recursive(source.path(), build.path()).unwrap();
+        let compile_dir = build.path().join("paper-a");
+        compile_with_texlive(&compile_dir, "main.tex", TexEngine::Latex, main).unwrap();
+        assert!(compile_dir.join("main.pdf").exists());
+        assert!(std::fs::read_to_string(compile_dir.join("main.log"))
+            .unwrap()
+            .contains("sections/intro.tex"));
+    }
+
+    #[test]
+    fn latexmk_compiles_nested_main_with_relative_input() {
+        if find_texlive_binary("latexmk").is_err() {
+            return;
+        }
+        let build = tempfile::tempdir().unwrap();
+        let compile_dir = build.path().join("paper-a");
+        std::fs::create_dir_all(compile_dir.join("sections")).unwrap();
+        std::fs::write(
+            compile_dir.join("main.tex"),
+            "\\documentclass{article}\n\\begin{document}\n\\input{sections/intro}\n\\end{document}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            compile_dir.join("sections/intro.tex"),
+            "Nested source works.\n",
+        )
+        .unwrap();
+        compile_with_latexmk(&compile_dir, "main.tex", TexEngine::Latex).unwrap();
+        assert!(compile_dir.join("main.pdf").exists());
+        assert!(std::fs::read_to_string(compile_dir.join("main.log"))
+            .unwrap()
+            .contains("sections/intro.tex"));
+    }
+
+    #[test]
+    fn parallel_nested_mains_keep_their_own_sources_and_pdfs() {
+        if find_texlive_binary("pdflatex").is_err() {
+            return;
+        }
+        let source = tempfile::tempdir().unwrap();
+        let main = "\\documentclass{article}\n\\begin{document}\n\\input{sections/intro}\n\\end{document}\n";
+        for (paper, marker) in [("paper-a", "BUILD_A"), ("paper-b", "BUILD_B")] {
+            let dir = source.path().join(paper);
+            std::fs::create_dir_all(dir.join("sections")).unwrap();
+            std::fs::write(dir.join("main.tex"), main).unwrap();
+            std::fs::write(
+                dir.join("sections/intro.tex"),
+                format!("\\typeout{{{marker}}}\n{marker}\n"),
+            )
+            .unwrap();
+        }
+
+        let source_path = source.path().to_path_buf();
+        std::thread::scope(|scope| {
+            let builds: Vec<_> = [("paper-a", "BUILD_A"), ("paper-b", "BUILD_B")]
+                .into_iter()
+                .map(|(paper, marker)| {
+                    let source_path = source_path.clone();
+                    scope.spawn(move || {
+                        let relative_main = format!("{paper}/main.tex");
+                        let work_dir =
+                            persistent_build_dir_for(source_path.to_str().unwrap(), &relative_main);
+                        copy_dir_recursive(&source_path, &work_dir).unwrap();
+                        let compile_dir = work_dir.join(paper);
+                        compile_with_texlive(&compile_dir, "main.tex", TexEngine::Latex, main)
+                            .unwrap();
+                        let log = std::fs::read_to_string(compile_dir.join("main.log")).unwrap();
+                        let pdf = std::fs::read(compile_dir.join("main.pdf")).unwrap();
+                        assert!(log.contains(marker), "{paper} read the wrong section");
+                        (log, pdf)
+                    })
+                })
+                .collect();
+            let mut builds = builds.into_iter();
+            let first = builds.next().unwrap().join().unwrap();
+            let second = builds.next().unwrap().join().unwrap();
+            assert!(!first.0.contains("BUILD_B"));
+            assert!(!second.0.contains("BUILD_A"));
+            assert_ne!(first.1, second.1);
+        });
     }
 
     // --- copy_dir_recursive integration tests ---

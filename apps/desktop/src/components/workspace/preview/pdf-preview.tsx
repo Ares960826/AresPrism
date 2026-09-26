@@ -1,3 +1,6 @@
+import { zoomCache } from "@/lib/workspace-view-cache";
+import { requestPreviewCompile } from "@/lib/preview-compile";
+import { usePreviewCompileShortcut } from "@/hooks/use-preview-compile-shortcut";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   FileTextIcon,
@@ -22,10 +25,8 @@ import {
   getPdfBytes,
   getCurrentPdfBytes,
   getCurrentPdfRootId,
-  hasPdfData,
   listPdfRootIds,
 } from "@/stores/document-store";
-import { useHistoryStore } from "@/stores/history-store";
 import { useClaudeChatStore } from "@/stores/claude-chat-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useLayoutStore } from "@/stores/layout-store";
@@ -49,7 +50,7 @@ import {
   type OverflowToolbarItem,
 } from "@/components/workspace/overflow-toolbar";
 import {
-  compileLatex,
+  requestCompile,
   compileIndependentRoots,
   synctexEdit,
   synctexView,
@@ -95,16 +96,7 @@ function sendChatPrompt(
 
 type FitMode = "fit-width" | "fit-height" | null;
 
-/** Per-root zoom state cache: rootFileId -> { scale, fitMode } */
-const zoomCache = new Map<string, { scale: number; fitMode: FitMode }>();
-
-/** Max number of PdfViewer instances kept alive simultaneously. */
 const MAX_ALIVE_VIEWERS = 5;
-
-/** Clear zoom cache (e.g., on project close). */
-export function clearZoomCache(): void {
-  zoomCache.clear();
-}
 
 const ZOOM_OPTIONS = [
   { value: "0.5", label: "50%" },
@@ -184,9 +176,7 @@ export function PdfPreview() {
 
   // Keep-alive: track which root files have PdfViewer instances alive (LRU order)
   const currentRootFileId =
-    activeFile?.type === "tex"
-      ? resolveTexRoot(activeFile.id, files)
-      : (getCurrentPdfRootId() ?? resolveTexRoot(activeFile?.id ?? "", files));
+    getCurrentPdfRootId() ?? resolveTexRoot(activeFile?.id ?? "", files);
   const [aliveOrder, setAliveOrder] = useState<string[]>([]);
   const prevRootRef = useRef(currentRootFileId);
 
@@ -438,28 +428,11 @@ export function PdfPreview() {
           await compileIndependentRoots(configured.map((doc) => doc.mainFile));
           return;
         }
-        setIsCompiling(true);
-        await saveAllFiles();
         const resolved = resolveCompileTarget(activeFileId, allFiles);
-        if (!resolved) {
-          setCompileError(
-            "No .tex file found in this project. Create a main.tex file to compile.",
-          );
-          return;
-        }
-        const { rootId, targetPath } = resolved;
-        const settings = useSettingsStore.getState();
-        const data = await compileLatex(
-          projectRoot,
-          targetPath,
-          settings.compilerBackend,
-          settings.defaultEngine,
-        );
-        setPdfData(data, rootId);
+        if (!resolved) return;
+        await requestCompile(resolved.rootId, resolved.targetPath);
       } catch (error) {
         setCompileError(formatCompileError(error));
-      } finally {
-        setIsCompiling(false);
       }
     };
     compile();
@@ -552,73 +525,18 @@ export function PdfPreview() {
     setScale(newScale);
   };
 
-  const handleCompile = async (force = false) => {
-    if (parseDetachedPane() === "preview") {
-      void emit(PANE_EVENTS.compile, { force });
-      return;
-    }
-    // Read all guard values from the store to avoid stale closures
-    const state = useDocumentStore.getState();
-    if (!state.projectRoot) return;
-    if (state.isCompiling) {
-      // Queue a recompile after the current one finishes
-      state.setPendingRecompile(true);
-      return;
-    }
-    const allFiles = state.files;
-    const activeFileId = state.activeFileId;
-    const activeEntry = allFiles.find((f) => f.id === activeFileId);
-    if (!activeEntry || activeEntry.type !== "tex") return;
-    const resolved = resolveCompileTarget(activeFileId, allFiles);
-    if (!resolved) {
-      setCompileError(
-        "No .tex file found in this project. Create a main.tex file to compile.",
-      );
-      return;
-    }
-    const { rootId, targetPath: targetFile } = resolved;
-    // Skip recompile if no edits since last successful compile of this root
-    // (unless force=true, e.g. user clicked Recompile button)
-    if (!force) {
-      const lastGen = state.lastCompiledGenerations.get(rootId);
-      if (
-        hasPdfData() &&
-        lastGen !== undefined &&
-        state.contentGeneration === lastGen
-      )
-        return;
-    }
-    useHistoryStore.getState().stopReview();
-    setIsCompiling(true);
-    state.setPendingRecompile(false);
+  const handleCompile = useCallback(async (force = false) => {
     setPdfError(null);
-    const compileStart = Date.now();
     try {
-      await saveAllFiles();
-      const settings = useSettingsStore.getState();
-      const data = await compileLatex(
-        state.projectRoot,
-        targetFile,
-        settings.compilerBackend,
-        settings.defaultEngine,
-      );
-      setPdfData(data, rootId);
+      await requestPreviewCompile(force);
     } catch (error) {
-      setCompileError(formatCompileError(error), rootId);
-    } finally {
-      // Ensure the spinner is visible for at least 500ms for visual feedback
-      const elapsed = Date.now() - compileStart;
-      if (elapsed < 500) {
-        await new Promise((r) => setTimeout(r, 500 - elapsed));
-      }
-      setIsCompiling(false);
-      // If a recompile was requested while we were compiling, trigger it now
-      // Use setTimeout to avoid unbounded recursion on the call stack
-      if (useDocumentStore.getState().pendingRecompile) {
-        setTimeout(() => handleCompile(), 0);
-      }
+      setPdfError(formatCompileError(error));
     }
-  };
+  }, []);
+  const compileShortcut = useCallback(() => {
+    void handleCompile(true);
+  }, [handleCompile]);
+  usePreviewCompileShortcut(compileShortcut);
 
   const handleCapture = async (result: CaptureResult) => {
     setCaptureMode(false);

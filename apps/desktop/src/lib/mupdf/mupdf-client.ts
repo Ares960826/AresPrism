@@ -39,10 +39,28 @@ function createClient(): MupdfClient {
   let nextId = 1;
   let ready: Promise<void>;
   let resolveReady: () => void;
+  let rejectReady: (error: Error) => void;
+  let failure: Error | null = null;
 
-  ready = new Promise((resolve) => {
+  ready = new Promise((resolve, reject) => {
     resolveReady = resolve;
+    rejectReady = reject;
   });
+  void ready.catch(() => {});
+  const initTimer = setTimeout(
+    () => fail(new Error("MuPDF initialization timed out")),
+    30_000,
+  );
+  function fail(error: Error) {
+    if (failure) return;
+    failure = error;
+    clearTimeout(initTimer);
+    rejectReady(error);
+    for (const request of pending.values()) request.reject(error);
+    pending.clear();
+    worker.terminate();
+    if (instance === client) instance = null;
+  }
 
   worker.onmessage = (event: MessageEvent) => {
     const data = event.data as WorkerResponse;
@@ -50,6 +68,7 @@ function createClient(): MupdfClient {
 
     if (type === "INIT") {
       log.info("Worker initialized");
+      clearTimeout(initTimer);
       resolveReady();
       return;
     }
@@ -68,14 +87,14 @@ function createClient(): MupdfClient {
 
   worker.onerror = (event) => {
     log.error("Worker fatal error", { message: event.message });
-    // Nullify singleton so next getMupdfClient() creates a fresh worker
-    instance = null;
+    fail(new Error(event.message || "MuPDF worker failed"));
   };
 
   const CALL_TIMEOUT_MS = 30_000;
 
   function call(method: string, ...args: unknown[]): Promise<any> {
     return ready.then(() => {
+      if (failure) throw failure;
       return new Promise((resolve, reject) => {
         const id = nextId++;
 
@@ -108,12 +127,19 @@ function createClient(): MupdfClient {
           }
         }
 
-        worker.postMessage([method, id, args], { transfer: transferables });
+        try {
+          worker.postMessage([method, id, args], { transfer: transferables });
+        } catch (error) {
+          pending
+            .get(id)
+            ?.reject(error instanceof Error ? error : new Error(String(error)));
+          pending.delete(id);
+        }
       });
     });
   }
 
-  return {
+  const client: MupdfClient = {
     openDocument: (buffer, magic = "application/pdf") =>
       call("openDocument", buffer, magic),
     closeDocument: (docId) => call("closeDocument", docId),
@@ -126,8 +152,9 @@ function createClient(): MupdfClient {
     getPageLinks: (docId, pageIndex) => call("getPageLinks", docId, pageIndex),
     renderThumbnail: (docId, pageIndex, targetWidth) =>
       call("renderThumbnail", docId, pageIndex, targetWidth),
-    destroy: () => worker.terminate(),
+    destroy: () => fail(new Error("MuPDF worker was closed")),
   };
+  return client;
 }
 
 let instance: MupdfClient | null = null;

@@ -46,6 +46,7 @@ methods.closeDocument = (docId: number): void => {
   const doc = documentMap.get(docId);
   if (doc) {
     documentMap.delete(docId);
+    doc.destroy();
   }
 };
 
@@ -60,11 +61,15 @@ methods.getPageSize = (
 ): { width: number; height: number } => {
   const doc = documentMap.get(docId)!;
   const page = doc.loadPage(pageIndex);
-  const bounds = page.getBounds();
-  return {
-    width: bounds[2] - bounds[0],
-    height: bounds[3] - bounds[1],
-  };
+  try {
+    const bounds = page.getBounds();
+    return {
+      width: bounds[2] - bounds[0],
+      height: bounds[3] - bounds[1],
+    };
+  } finally {
+    page.destroy();
+  }
 };
 
 methods.getAllPageSizes = (
@@ -75,11 +80,15 @@ methods.getAllPageSizes = (
   const sizes: { width: number; height: number }[] = [];
   for (let i = 0; i < count; i++) {
     const page = doc.loadPage(i);
-    const bounds = page.getBounds();
-    sizes.push({
-      width: bounds[2] - bounds[0],
-      height: bounds[3] - bounds[1],
-    });
+    try {
+      const bounds = page.getBounds();
+      sizes.push({
+        width: bounds[2] - bounds[0],
+        height: bounds[3] - bounds[1],
+      });
+    } finally {
+      page.destroy();
+    }
   }
   return sizes;
 };
@@ -91,122 +100,152 @@ methods.drawPage = (
 ): ImageData => {
   const doc = documentMap.get(docId)!;
   const page = doc.loadPage(pageIndex);
-  const scale = dpi / 72;
-  const matrix = mupdf.Matrix.scale(scale, scale);
-  // alpha=false so the PDF's white background is rendered opaquely (RGB, 3 bytes/pixel)
-  const pixmap = page.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, false, true);
-  const w = pixmap.getWidth();
-  const h = pixmap.getHeight();
-  const rgb = pixmap.getPixels();
-  pixmap.destroy();
-  // Convert RGB (3 bytes/pixel) → RGBA (4 bytes/pixel) for ImageData
-  const rgba = new Uint8ClampedArray(w * h * 4);
-  for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
-    rgba[j] = rgb[i];
-    rgba[j + 1] = rgb[i + 1];
-    rgba[j + 2] = rgb[i + 2];
-    rgba[j + 3] = 255; // fully opaque
+  try {
+    const scale = dpi / 72;
+    const matrix = mupdf.Matrix.scale(scale, scale);
+    // alpha=false so the PDF's white background is rendered opaquely (RGB, 3 bytes/pixel)
+    const pixmap = page.toPixmap(
+      matrix,
+      mupdf.ColorSpace.DeviceRGB,
+      false,
+      true,
+    );
+    try {
+      const w = pixmap.getWidth();
+      const h = pixmap.getHeight();
+      const rgb = pixmap.getPixels();
+      // Convert RGB (3 bytes/pixel) → RGBA (4 bytes/pixel) for ImageData
+      const rgba = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
+        rgba[j] = rgb[i];
+        rgba[j + 1] = rgb[i + 1];
+        rgba[j + 2] = rgb[i + 2];
+        rgba[j + 3] = 255; // fully opaque
+      }
+      return new ImageData(rgba, w, h);
+    } finally {
+      pixmap.destroy();
+    }
+  } finally {
+    page.destroy();
   }
-  return new ImageData(rgba, w, h);
 };
 
 methods.getPageText = (docId: number, pageIndex: number): unknown => {
   const doc = documentMap.get(docId)!;
   const page = doc.loadPage(pageIndex);
-  const stext = page.toStructuredText("preserve-whitespace");
-  const raw = JSON.parse(stext.asJSON());
+  try {
+    const stext = page.toStructuredText("preserve-whitespace");
+    let raw;
+    try {
+      raw = JSON.parse(stext.asJSON());
+    } finally {
+      stext.destroy();
+    }
 
-  // Transform mupdf's nested spans format to our flat line format
-  const blocks = (raw.blocks || []).map((block: any) => {
-    if (block.type !== "text") return block;
-    return {
-      type: "text",
-      bbox: block.bbox,
-      lines: (block.lines || []).map((line: any) => {
-        let text = "";
-        let font = {
-          name: "",
-          family: "",
-          size: 12,
-          weight: "normal",
-          style: "normal",
-        };
-        let baselineY = 0;
-
-        const spans = line.spans || [];
-        if (spans.length > 0) {
-          text = spans
-            .map((span: any) =>
-              (span.chars || []).map((ch: any) => ch.c).join(""),
-            )
-            .join("");
-
-          const firstSpan = spans[0];
-          font = {
-            name: firstSpan.font?.name || "",
-            family: firstSpan.font?.family || "",
-            size: firstSpan.size || 12,
-            weight: firstSpan.font?.weight || "normal",
-            style: firstSpan.font?.style || "normal",
+    // Transform mupdf's nested spans format to our flat line format
+    const blocks = (raw.blocks || []).map((block: any) => {
+      if (block.type !== "text") return block;
+      return {
+        type: "text",
+        bbox: block.bbox,
+        lines: (block.lines || []).map((line: any) => {
+          let text = "";
+          let font = {
+            name: "",
+            family: "",
+            size: 12,
+            weight: "normal",
+            style: "normal",
           };
+          let baselineY = 0;
 
-          // Use first char origin as baseline
-          if (firstSpan.chars?.[0]?.origin) {
-            baselineY = firstSpan.chars[0].origin.y;
-          } else {
-            baselineY = (line.bbox?.y || 0) + (line.bbox?.h || 0);
+          const spans = line.spans || [];
+          if (spans.length > 0) {
+            text = spans
+              .map((span: any) =>
+                (span.chars || []).map((ch: any) => ch.c).join(""),
+              )
+              .join("");
+
+            const firstSpan = spans[0];
+            font = {
+              name: firstSpan.font?.name || "",
+              family: firstSpan.font?.family || "",
+              size: firstSpan.size || 12,
+              weight: firstSpan.font?.weight || "normal",
+              style: firstSpan.font?.style || "normal",
+            };
+
+            // Use first char origin as baseline
+            if (firstSpan.chars?.[0]?.origin) {
+              baselineY = firstSpan.chars[0].origin.y;
+            } else {
+              baselineY = (line.bbox?.y || 0) + (line.bbox?.h || 0);
+            }
           }
-        }
 
-        return {
-          bbox: line.bbox || { x: 0, y: 0, w: 0, h: 0 },
-          wmode: line.wmode || 0,
-          x: line.bbox?.x || 0,
-          y: baselineY,
-          text,
-          font,
-        };
-      }),
-    };
-  });
+          return {
+            bbox: line.bbox || { x: 0, y: 0, w: 0, h: 0 },
+            wmode: line.wmode || 0,
+            x: line.bbox?.x || 0,
+            y: baselineY,
+            text,
+            font,
+          };
+        }),
+      };
+    });
 
-  return { blocks };
+    return { blocks };
+  } finally {
+    page.destroy();
+  }
 };
 
 methods.getPageLinks = (docId: number, pageIndex: number): unknown[] => {
   const doc = documentMap.get(docId)!;
   const page = doc.loadPage(pageIndex);
-  const links = page.getLinks();
-  return links.map((link: any) => {
-    const bounds = link.getBounds();
-    const uri: string = link.getURI() || "";
-    const isExternal: boolean = link.isExternal?.() ?? uri.startsWith("http");
-    let href: string;
-    if (isExternal) {
-      href = uri;
-    } else {
-      try {
-        const resolved = doc.resolveLink(uri) as any;
-        if (typeof resolved === "number") {
-          href = `#page=${resolved + 1}`;
-        } else if (resolved && typeof resolved.page === "number") {
-          href = `#page=${resolved.page + 1}`;
-        } else {
+  try {
+    const links = page.getLinks();
+    try {
+      return links.map((link: any) => {
+        const bounds = link.getBounds();
+        const uri: string = link.getURI() || "";
+        const isExternal: boolean =
+          link.isExternal?.() ?? uri.startsWith("http");
+        let href: string;
+        if (isExternal) {
           href = uri;
+        } else {
+          try {
+            const resolved = doc.resolveLink(uri) as any;
+            if (typeof resolved === "number") {
+              href = `#page=${resolved + 1}`;
+            } else if (resolved && typeof resolved.page === "number") {
+              href = `#page=${resolved.page + 1}`;
+            } else {
+              href = uri;
+            }
+          } catch {
+            href = uri;
+          }
         }
-      } catch {
-        href = uri;
-      }
+        return {
+          x: bounds[0],
+          y: bounds[1],
+          w: bounds[2] - bounds[0],
+          h: bounds[3] - bounds[1],
+          href,
+          isExternal,
+        };
+      });
+    } finally {
+      for (const link of links) link.destroy();
     }
-    return {
-      x: bounds[0],
-      y: bounds[1],
-      w: bounds[2] - bounds[0],
-      h: bounds[3] - bounds[1],
-      href,
-      isExternal,
-    };
-  });
+  } finally {
+    page.destroy();
+  }
 };
 
 methods.renderThumbnail = (
@@ -216,15 +255,27 @@ methods.renderThumbnail = (
 ): ArrayBuffer => {
   const doc = documentMap.get(docId)!;
   const page = doc.loadPage(pageIndex);
-  const bounds = page.getBounds();
-  const pageWidth = bounds[2] - bounds[0];
-  const retinaScale = 2;
-  const scale = (targetWidth * retinaScale) / pageWidth;
-  const matrix = mupdf.Matrix.scale(scale, scale);
-  const pixmap = page.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, false, true);
-  const png = pixmap.asPNG();
-  pixmap.destroy();
-  return png.buffer as ArrayBuffer;
+  try {
+    const bounds = page.getBounds();
+    const pageWidth = bounds[2] - bounds[0];
+    const retinaScale = 2;
+    const scale = (targetWidth * retinaScale) / pageWidth;
+    const matrix = mupdf.Matrix.scale(scale, scale);
+    const pixmap = page.toPixmap(
+      matrix,
+      mupdf.ColorSpace.DeviceRGB,
+      false,
+      true,
+    );
+    try {
+      const png = pixmap.asPNG();
+      return png.slice().buffer as ArrayBuffer;
+    } finally {
+      pixmap.destroy();
+    }
+  } finally {
+    page.destroy();
+  }
 };
 
 // RPC message handler

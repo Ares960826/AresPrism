@@ -26,9 +26,12 @@ export function useKeyboardShortcuts() {
         e.preventDefault();
         const state = useDocumentStore.getState();
         state.setIsSaving(true);
-        state.saveCurrentFile().finally(() => {
-          setTimeout(() => state.setIsSaving(false), 500);
-        });
+        state
+          .saveCurrentFile()
+          .catch(() => {})
+          .finally(() => {
+            setTimeout(() => state.setIsSaving(false), 500);
+          });
       }
 
       if (

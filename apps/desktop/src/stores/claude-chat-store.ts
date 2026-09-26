@@ -901,7 +901,18 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
     // Flush unsaved edits to disk so Claude reads the latest content
     if (docState.files.some((f) => f.isDirty)) {
       log.debug("saving dirty files...");
-      await docState.saveAllFiles();
+      try {
+        await docState.saveAllFiles();
+      } catch (error) {
+        set((s) =>
+          applyTabUpdate(s, activeTabId, {
+            isStreaming: false,
+            streamingStartedAt: null,
+            error: `Could not save files before starting the agent: ${String(error)}`,
+          }),
+        );
+        return;
+      }
       log.debug("saveAllFiles done");
     }
 

@@ -1,5 +1,5 @@
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useId } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   MonitorIcon,
@@ -132,7 +132,7 @@ export function AppearanceSettings() {
             ))}
           </SelectContent>
         </Select>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.85rem] text-muted-foreground">
           Uses the font if it is installed on this Mac; otherwise falls back to
           system mono.
         </p>
@@ -229,11 +229,11 @@ export function AgentSettings() {
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
                     <span className="font-medium text-xs">{option.label}</span>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-[0.85rem] text-muted-foreground">
                       {status?.detail || "…"}
                     </span>
                   </span>
-                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                  <span className="mt-0.5 block text-[0.85rem] text-muted-foreground">
                     {option.hint}
                   </span>
                 </span>
@@ -241,7 +241,7 @@ export function AgentSettings() {
             );
           })}
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.85rem] text-muted-foreground">
           Chat runs this CLI in the project folder. Sign in with that CLI
           (browser / OAuth). API keys in the section below are only for Claude
           Code; they do not log you into Codex, Grok, or Kimi.
@@ -344,20 +344,20 @@ export function LatexSettings() {
             <SelectItem value="auto">Auto (% !TEX program)</SelectItem>
           </SelectContent>
         </Select>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.85rem] text-muted-foreground">
           Used when the file has no % !TEX program comment.
         </p>
       </Field>
       <Field label="Documents">
         {!projectRoot ? (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[0.85rem] text-muted-foreground">
             Open a project to choose main files and their citation files.
           </p>
         ) : (
           <div className="space-y-2">
             {compileDocs.map((doc, index) => (
               <div key={`${doc.mainFile}-${index}`} className="space-y-1.5">
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.85rem] text-muted-foreground">
                   {index === 0
                     ? "Default open / compile"
                     : `Document ${index + 1}`}
@@ -419,7 +419,7 @@ export function LatexSettings() {
                 {compileDocs.length > 1 && (
                   <button
                     type="button"
-                    className="text-[11px] text-muted-foreground hover:text-foreground"
+                    className="text-[0.85rem] text-muted-foreground hover:text-foreground"
                     onClick={() =>
                       persistDocs(compileDocs.filter((_, i) => i !== index))
                     }
@@ -452,7 +452,7 @@ export function LatexSettings() {
               <PlusIcon className="size-3.5" />
               Add another main file
             </Button>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.85rem] text-muted-foreground">
               First row is opened and compiled when the project loads. Citation
               files are optional.
             </p>
@@ -471,7 +471,7 @@ export function LatexSettings() {
             label="Double-click to locate"
             onCheckedChange={setSynctexDblClickLocate}
           />
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[0.85rem] text-muted-foreground">
             PDF click jumps to the matching source file. Double-click a word in
             the editor to flash the line, then the word.
           </p>
@@ -491,13 +491,17 @@ export function LatexSettings() {
 function Field({
   label,
   children,
+  htmlFor,
 }: {
+  htmlFor?: string;
   label: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
+      <Label htmlFor={htmlFor} className="text-xs">
+        {label}
+      </Label>
       {children}
     </div>
   );
@@ -516,16 +520,18 @@ function SizeRow({
   max: number;
   onChange: (size: number) => void;
 }) {
+  const id = useId();
   return (
-    <Field label={`${label} (${value}px)`}>
+    <Field htmlFor={id} label={`${label} (${value}px)`}>
       <input
+        id={id}
         type="range"
         min={min}
         max={max}
         step={1}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-foreground"
+        className="w-full cursor-pointer accent-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
       />
     </Field>
   );
@@ -556,13 +562,13 @@ export function UpdateSettings() {
         <div className="flex items-center justify-between gap-3 rounded-md border border-border px-2.5 py-2">
           <div className="min-w-0">
             <p className="font-medium text-xs">{APP_NAME}</p>
-            <p className="truncate text-[11px] text-muted-foreground">
+            <p className="truncate text-[0.85rem] text-muted-foreground">
               {detail}
             </p>
           </div>
           <UpdateCheckButton />
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.85rem] text-muted-foreground">
           Checks GitHub Releases and installs into this app, then restarts. You
           can also click the version in the sidebar footer.
         </p>

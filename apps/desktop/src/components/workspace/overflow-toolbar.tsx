@@ -51,12 +51,16 @@ export function OverflowToolbar({
       const trailingWidth =
         trailingRef.current?.getBoundingClientRect().width ?? 0;
       const available = host.getBoundingClientRect().width - trailingWidth;
-      setHiddenIds(overflowingItemIds(measured, available, 32, 4));
+      const next = overflowingItemIds(measured, available, 32, 4);
+      setHiddenIds((prev) => (prev.join("|") === next.join("|") ? prev : next));
     };
 
     update();
     const observer = new ResizeObserver(update);
     observer.observe(host);
+    observer.observe(measure);
+    for (const child of measure.children) observer.observe(child);
+    if (trailingRef.current) observer.observe(trailingRef.current);
     return () => observer.disconnect();
   }, [itemKey]);
 
@@ -80,6 +84,7 @@ export function OverflowToolbar({
       <div
         ref={measureRef}
         aria-hidden
+        inert
         className="pointer-events-none invisible absolute inset-y-0 left-0 flex items-center gap-1"
       >
         {items.map((item) => (
@@ -107,7 +112,7 @@ export function OverflowToolbar({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="size-6 shrink-0 shadow-none outline-none ring-0 hover:bg-muted/70 focus-visible:border-transparent focus-visible:ring-0 data-[state=open]:bg-muted/70"
+                className="size-6 shrink-0 shadow-none outline-none ring-0 hover:bg-muted/70 focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted/70"
                 aria-label="More"
               >
                 <MoreHorizontalIcon className="size-3.5" />

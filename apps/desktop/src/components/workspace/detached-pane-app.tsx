@@ -1,6 +1,7 @@
+import { createLogger } from "@/lib/debug/logger";
 import { useEffect } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
-import { readFile, exists } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import { ErrorBoundary } from "react-error-boundary";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
@@ -12,20 +13,23 @@ import { ClaudeChatDrawer } from "@/components/claude-chat/claude-chat-drawer";
 import { PdfPreview } from "@/components/workspace/preview/pdf-preview";
 import {
   CHAT_RELAY_ACTIONS,
-  compiledPdfAbsolutePath,
+  mergePreviewSnapshot,
+  paneWindowLabel,
   PANE_EVENTS,
   type ChatCallPayload,
   type DetachedPane,
   type PreviewPaneSnapshot,
 } from "@/lib/detached-pane";
 import { useClaudeChatStore } from "@/stores/claude-chat-store";
-import { useDocumentStore } from "@/stores/document-store";
+import { getPdfBytes, useDocumentStore } from "@/stores/document-store";
 import { useLayoutStore } from "@/stores/layout-store";
 import {
   useSyncTexStore,
   type SyncTexViewRequest,
 } from "@/stores/synctex-store";
 import type { ProjectFileType } from "@/lib/tauri/fs";
+
+const log = createLogger("detached-pane");
 
 function installChatActionRelay() {
   const patch: Record<string, unknown> = {};
@@ -38,22 +42,32 @@ function installChatActionRelay() {
   useClaudeChatStore.setState(patch);
 }
 
-async function loadPreviewPdf(snapshot: PreviewPaneSnapshot) {
+async function loadPreviewPdf(
+  snapshot: PreviewPaneSnapshot,
+  isCurrent: () => boolean,
+) {
   if (!snapshot.projectRoot || !snapshot.pdfRootId) return;
   const file = snapshot.files.find((item) => item.id === snapshot.pdfRootId);
   if (!file) return;
-  const pdfPath = compiledPdfAbsolutePath(
-    snapshot.projectRoot,
-    file.relativePath,
-  );
   try {
-    if (!(await exists(pdfPath))) return;
-    const bytes = await readFile(pdfPath);
-    useDocumentStore
-      .getState()
-      .setPdfData(new Uint8Array(bytes), snapshot.pdfRootId);
-  } catch {
-    // Keep the last preview if the build PDF is not readable yet.
+    const buffer = await invoke<ArrayBuffer>("read_compiled_pdf", {
+      projectDir: snapshot.projectRoot,
+      mainFile: file.relativePath,
+    });
+    const bytes = new Uint8Array(buffer);
+    log.info("Loaded preview PDF", {
+      bytes: bytes.length,
+      revision: snapshot.pdfContentRevision,
+    });
+    if (!isCurrent()) return;
+    useDocumentStore.getState().setPdfData(bytes, snapshot.pdfRootId);
+    return true;
+  } catch (error) {
+    log.warn("Could not read compiled preview", { error: String(error) });
+    if (isCurrent())
+      useDocumentStore
+        .getState()
+        .setCompileError(`Could not read preview: ${String(error)}`);
   }
 }
 
@@ -75,7 +89,57 @@ export function DetachedPaneApp({
       useLayoutStore.setState({ chatMode: "floating", chatOpen: true });
       installChatActionRelay();
     }
-    const unlisten: Array<() => void> = [];
+    const stops: Array<() => void> = [];
+    const unlisten = {
+      push: (stop: () => void) => (cancelled ? stop() : stops.push(stop)),
+    };
+    let previous: PreviewPaneSnapshot | null = null;
+    let pdfKey = "";
+    const loadedVersions = new Map<string, number>();
+    let loadGeneration = 0;
+    const apply = (payload: PreviewPaneSnapshot) => {
+      if (cancelled) return;
+      const snapshot = mergePreviewSnapshot(previous, payload);
+      previous = snapshot;
+      log.debug("Received document state", {
+        root: snapshot.pdfRootId,
+        files: snapshot.files.length,
+        revision: snapshot.pdfContentRevision,
+      });
+      useDocumentStore.getState().applyPreviewSnapshot({
+        ...snapshot,
+        files: snapshot.files.map((file) => ({
+          ...file,
+          type: file.type as ProjectFileType,
+        })),
+      });
+      const key = JSON.stringify([
+        snapshot.projectRoot,
+        snapshot.pdfRootId,
+        snapshot.pdfContentRevision ?? snapshot.pdfRevision,
+      ]);
+      if (pane === "preview" && key !== pdfKey) {
+        pdfKey = key;
+        const generation = ++loadGeneration;
+        const documentKey = JSON.stringify([
+          snapshot.projectRoot,
+          snapshot.pdfRootId,
+        ]);
+        const version = snapshot.pdfContentRevision ?? snapshot.pdfRevision;
+        if (
+          snapshot.pdfRootId &&
+          loadedVersions.get(documentKey) === version &&
+          getPdfBytes(snapshot.pdfRootId)
+        )
+          return;
+        void loadPreviewPdf(
+          snapshot,
+          () => !cancelled && generation === loadGeneration,
+        ).then((loaded) => {
+          if (loaded) loadedVersions.set(documentKey, version);
+        });
+      }
+    };
     let cancelled = false;
 
     const start = async () => {
@@ -84,25 +148,22 @@ export function DetachedPaneApp({
           await listen<PreviewPaneSnapshot>(
             PANE_EVENTS.previewState,
             (event) => {
-              const snapshot = {
-                ...event.payload,
-                files: event.payload.files.map((file) => ({
-                  ...file,
-                  type: file.type as ProjectFileType,
-                })),
-              };
-              useDocumentStore.getState().applyPreviewSnapshot(snapshot);
-              void loadPreviewPdf(snapshot);
+              apply(event.payload);
             },
+            { target: paneWindowLabel(pane) },
           ),
         );
         unlisten.push(
-          await listen<SyncTexViewRequest>(PANE_EVENTS.synctexView, (event) => {
-            useSyncTexStore.setState({
-              viewRequest: event.payload,
-              followPaused: false,
-            });
-          }),
+          await listen<SyncTexViewRequest>(
+            PANE_EVENTS.synctexView,
+            (event) => {
+              useSyncTexStore.setState({
+                viewRequest: event.payload,
+                followPaused: false,
+              });
+            },
+            { target: paneWindowLabel(pane) },
+          ),
         );
       }
 
@@ -113,20 +174,16 @@ export function DetachedPaneApp({
             (event) => {
               useClaudeChatStore.setState(event.payload);
             },
+            { target: paneWindowLabel(pane) },
           ),
         );
         unlisten.push(
           await listen<PreviewPaneSnapshot>(
             PANE_EVENTS.previewState,
             (event) => {
-              useDocumentStore.getState().applyPreviewSnapshot({
-                ...event.payload,
-                files: event.payload.files.map((file) => ({
-                  ...file,
-                  type: file.type as ProjectFileType,
-                })),
-              });
+              apply(event.payload);
             },
+            { target: paneWindowLabel(pane) },
           ),
         );
       }
@@ -138,7 +195,7 @@ export function DetachedPaneApp({
 
     return () => {
       cancelled = true;
-      for (const stop of unlisten) stop();
+      for (const stop of stops) stop();
     };
   }, [pane]);
 

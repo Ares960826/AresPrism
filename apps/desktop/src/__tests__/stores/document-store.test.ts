@@ -13,6 +13,7 @@ import {
   getCurrentPdfRootId,
   listPdfRootIds,
   clearPdfBytesCache,
+  resolveTexRoot,
   type ProjectFile,
 } from "@/stores/document-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -50,6 +51,61 @@ function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
     ...overrides,
   };
 }
+
+describe("resolveTexRoot", () => {
+  it("selects the main file beside a nested section when sibling papers share the same name", () => {
+    const files = [
+      makeFile({
+        id: "draft-a/main.tex",
+        name: "main.tex",
+        relativePath: "draft-a/main.tex",
+        content: "\\documentclass{article}",
+      }),
+      makeFile({
+        id: "draft-b/main.tex",
+        name: "main.tex",
+        relativePath: "draft-b/main.tex",
+        content: "\\documentclass{article}",
+      }),
+      makeFile({
+        id: "draft-b/sections/introduction.tex",
+        name: "introduction.tex",
+        relativePath: "draft-b/sections/introduction.tex",
+        content: "Introduction text",
+      }),
+    ];
+    expect(resolveTexRoot("draft-b/sections/introduction.tex", files)).toBe(
+      "draft-b/main.tex",
+    );
+    expect(
+      resolveTexRoot("draft-b/sections/introduction.tex", [
+        ...files.slice(0, -1),
+        { ...files[2], content: "" },
+      ]),
+    ).toBe("draft-b/main.tex");
+  });
+
+  it("resolves root comments within the current paper before other same-named papers", () => {
+    const roots = ["draft-a/main.tex", "draft-b/main.tex"].map((id) =>
+      makeFile({
+        id,
+        name: "main.tex",
+        relativePath: id,
+        content: "\\documentclass{article}",
+      }),
+    );
+    const id = "draft-b/sections/introduction.tex";
+    for (const reference of ["main.tex", "../main.tex", "draft-b/main.tex"]) {
+      const section = makeFile({
+        id,
+        name: "introduction.tex",
+        relativePath: id,
+        content: `% !TEX root = ${reference}\nIntroduction text`,
+      });
+      expect(resolveTexRoot(id, [...roots, section])).toBe("draft-b/main.tex");
+    }
+  });
+});
 
 describe("useDocumentStore", () => {
   beforeEach(() => {
@@ -164,7 +220,7 @@ describe("useDocumentStore", () => {
 
       expect(readDir).toHaveBeenCalledWith("/project");
       expect(readDir).not.toHaveBeenCalledWith("/project/__pycache__");
-      expect(stat).toHaveBeenCalledTimes(1);
+      expect(stat).toHaveBeenCalledTimes(2);
       expect(stat).toHaveBeenCalledWith("/project/tool.py");
       expect(readTextFile).toHaveBeenCalledTimes(2);
       expect(readTextFile).not.toHaveBeenCalledWith("/project/compiled.pyc");
@@ -509,6 +565,60 @@ describe("useDocumentStore", () => {
     });
   });
 
+  describe("parallel PDF results", () => {
+    beforeEach(() => {
+      const main = makeFile({
+        content: "\\documentclass{article}\\begin{document}A\\end{document}",
+      });
+      const other = makeFile({
+        id: "other/main.tex",
+        name: "main.tex",
+        relativePath: "other/main.tex",
+        absolutePath: "/project/other/main.tex",
+        content: "\\documentclass{article}\\begin{document}B\\end{document}",
+      });
+      useDocumentStore.setState({
+        files: [main, other],
+        activeFileId: main.id,
+      });
+    });
+
+    it("keeps the active paper visible when a background build finishes first or last", () => {
+      const state = useDocumentStore.getState();
+      state.setPdfData(new Uint8Array([2]), "other/main.tex");
+      expect(getCurrentPdfRootId()).toBeNull();
+      expect(getCurrentPdfBytes()).toBeNull();
+
+      state.setPdfData(new Uint8Array([1]), "main.tex");
+      expect(getCurrentPdfRootId()).toBe("main.tex");
+      expect(Array.from(getCurrentPdfBytes() ?? [])).toEqual([1]);
+
+      state.setPdfData(new Uint8Array([3]), "other/main.tex");
+      expect(getCurrentPdfRootId()).toBe("main.tex");
+      expect(Array.from(getCurrentPdfBytes() ?? [])).toEqual([1]);
+
+      state.setPreviewRoot("other/main.tex");
+      expect(getCurrentPdfRootId()).toBe("other/main.tex");
+      state.setPdfData(new Uint8Array([4]), "main.tex");
+      expect(getCurrentPdfRootId()).toBe("other/main.tex");
+      expect(Array.from(getCurrentPdfBytes() ?? [])).toEqual([3]);
+    });
+
+    it("keeps background failures with their own PDF tab", () => {
+      const state = useDocumentStore.getState();
+      state.setPdfData(new Uint8Array([1]), "main.tex");
+      state.setPdfData(new Uint8Array([2]), "other/main.tex");
+      state.setCompileError("other failed", "other/main.tex");
+      expect(useDocumentStore.getState().compileError).toBeNull();
+      expect(
+        useDocumentStore.getState().compileErrorCache.get("other/main.tex"),
+      ).toBe("other failed");
+
+      state.setPreviewRoot("other/main.tex");
+      expect(useDocumentStore.getState().compileError).toBe("other failed");
+    });
+  });
+
   describe("setActiveFile", () => {
     it("changes active file and resets selection", () => {
       useDocumentStore.setState({
@@ -716,5 +826,114 @@ describe("useDocumentStore", () => {
       expect(getCurrentPdfRootId()).toBe("main.tex");
       expect(state.files[0]?.content).toBe("\\documentclass{article}");
     });
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+describe("document I/O races", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useDocumentStore.setState({
+      projectRoot: "/project",
+      projectEpoch: 100,
+      files: [makeFile({ isDirty: true, revision: 1 })],
+      activeFileId: "main.tex",
+      folders: [],
+      saveError: null,
+      contentGeneration: 0,
+    });
+    vi.mocked(writeTextFile).mockResolvedValue(undefined);
+  });
+
+  it("keeps edits made during an in-flight save dirty", async () => {
+    const write = deferred<void>();
+    vi.mocked(writeTextFile).mockReturnValueOnce(write.promise);
+    const saving = useDocumentStore.getState().saveFile("main.tex");
+    await vi.waitFor(() => expect(writeTextFile).toHaveBeenCalledTimes(1));
+    useDocumentStore.getState().setContent("New edit");
+    write.resolve();
+    await saving;
+    expect(useDocumentStore.getState().files[0]).toMatchObject({
+      content: "New edit",
+      isDirty: true,
+    });
+    await useDocumentStore.getState().saveAllFiles();
+    expect(writeTextFile).toHaveBeenLastCalledWith(
+      "/project/main.tex",
+      "New edit",
+    );
+    expect(useDocumentStore.getState().files[0].isDirty).toBe(false);
+  });
+
+  it("serializes writes and flushes the latest edit before leaving", async () => {
+    const write = deferred<void>();
+    vi.mocked(writeTextFile).mockReturnValueOnce(write.promise);
+    const saving = useDocumentStore.getState().saveAllFiles();
+    await vi.waitFor(() => expect(writeTextFile).toHaveBeenCalledTimes(1));
+    useDocumentStore.getState().setContent("Latest");
+    const closing = useDocumentStore.getState().closeProject();
+    expect(useDocumentStore.getState().projectRoot).toBe("/project");
+    write.resolve();
+    await Promise.all([saving, closing]);
+    expect(writeTextFile).toHaveBeenLastCalledWith(
+      "/project/main.tex",
+      "Latest",
+    );
+    expect(useDocumentStore.getState().projectRoot).toBe(null);
+  });
+
+  it("keeps the document open and reports failed saves", async () => {
+    vi.mocked(writeTextFile).mockRejectedValueOnce(new Error("Disk full"));
+    await expect(useDocumentStore.getState().closeProject()).rejects.toThrow();
+    expect(useDocumentStore.getState().projectRoot).toBe("/project");
+    expect(useDocumentStore.getState().files[0].isDirty).toBe(true);
+    expect(useDocumentStore.getState().saveError).toContain("Disk full");
+  });
+
+  it("does not overwrite edits arriving while refresh reads disk", async () => {
+    useDocumentStore.setState({ files: [makeFile()] });
+    vi.mocked(readDir).mockResolvedValue([
+      { name: "main.tex", isFile: true, isDirectory: false, isSymlink: false },
+    ]);
+    vi.mocked(stat).mockResolvedValue({
+      size: 11,
+      mtime: new Date(1000),
+    } as Awaited<ReturnType<typeof stat>>);
+    const read = deferred<string>();
+    vi.mocked(readTextFile).mockReturnValueOnce(read.promise);
+    const refreshing = useDocumentStore.getState().refreshFiles();
+    await vi.waitFor(() => expect(readTextFile).toHaveBeenCalled());
+    useDocumentStore.getState().setContent("Keep this edit");
+    read.resolve("Old disk text");
+    await refreshing;
+    expect(useDocumentStore.getState().files[0]).toMatchObject({
+      content: "Keep this edit",
+      isDirty: true,
+    });
+    await useDocumentStore.getState().saveAllFiles();
+  });
+
+  it("does not read contents or publish state when metadata is unchanged", async () => {
+    useDocumentStore.setState({
+      files: [makeFile({ fileSize: 11, modifiedMs: 1000 })],
+    });
+    vi.mocked(readDir).mockResolvedValue([
+      { name: "main.tex", isFile: true, isDirectory: false, isSymlink: false },
+    ]);
+    vi.mocked(stat).mockResolvedValue({
+      size: 11,
+      mtime: new Date(1000),
+    } as Awaited<ReturnType<typeof stat>>);
+    const before = useDocumentStore.getState();
+    await before.refreshFiles();
+    expect(readTextFile).not.toHaveBeenCalled();
+    expect(useDocumentStore.getState()).toBe(before);
   });
 });

@@ -1,4 +1,11 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  useDeferredValue,
+} from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import {
   FileTextIcon,
@@ -449,7 +456,7 @@ export function Sidebar({
 
       const refreshTask = (async () => {
         try {
-          await refreshFiles();
+          await refreshFiles(showSpinner);
         } catch (err) {
           log.error("Refresh files failed", { error: String(err) });
         } finally {
@@ -947,7 +954,28 @@ export function Sidebar({
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     new Set(),
   );
-  const tree = useMemo(() => buildFileTree(files, folders), [files, folders]);
+  const treeFilesRef = useRef(files);
+  const previousFiles = treeFilesRef.current;
+  if (
+    files.length !== previousFiles.length ||
+    files.some((file, i) => {
+      const old = previousFiles[i];
+      return (
+        !old ||
+        file.id !== old.id ||
+        file.relativePath !== old.relativePath ||
+        file.name !== old.name ||
+        file.type !== old.type ||
+        file.isDirty !== old.isDirty
+      );
+    })
+  )
+    treeFilesRef.current = files;
+  const treeFiles = treeFilesRef.current;
+  const tree = useMemo(
+    () => buildFileTree(treeFiles, folders),
+    [treeFiles, folders],
+  );
 
   // Auto-expand parent folders of the active file so it stays visible
   useEffect(() => {
@@ -979,9 +1007,10 @@ export function Sidebar({
   }, []);
 
   // Outline
+  const outlineContent = useDeferredValue(activeFileContent);
   const toc = useMemo(
-    () => parseTableOfContents(activeFileContent),
-    [activeFileContent],
+    () => parseTableOfContents(outlineContent),
+    [outlineContent],
   );
   const handleTocClick = useCallback(
     (line: number) => {
@@ -1200,7 +1229,7 @@ export function Sidebar({
           variant="ghost"
           size="icon"
           className="size-7 transition-transform duration-300 ease-in-out hover:scale-105"
-          onClick={closeProject}
+          onClick={() => void closeProject().catch(() => {})}
           title="Close Project"
           aria-label="Close Project"
         >
@@ -1240,7 +1269,7 @@ export function Sidebar({
                 variant="ghost"
                 size="icon"
                 className="size-6 transition-all duration-150 ease-out hover:scale-105"
-                onClick={closeProject}
+                onClick={() => void closeProject().catch(() => {})}
                 title="Close Project"
                 aria-label="Close Project"
               >

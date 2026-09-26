@@ -1,16 +1,22 @@
 import { useEffect } from "react";
-import { emit, listen } from "@tauri-apps/api/event";
-import { compileIndependentRoots } from "@/lib/latex-compiler";
+import { emitTo, listen } from "@tauri-apps/api/event";
+import { compileFromPreview } from "@/lib/preview-compile";
 import { jumpEditorToSynctexSource } from "@/lib/synctex-jump";
 import {
   PANE_EVENTS,
+  paneWindowLabel,
   parseDetachedPane,
   type ChatCallPayload,
   type PreviewPaneSnapshot,
+  type PreviewCompilePayload,
   type SynctexJumpPayload,
 } from "@/lib/detached-pane";
 import { useClaudeChatStore } from "@/stores/claude-chat-store";
-import { getCurrentPdfRootId, useDocumentStore } from "@/stores/document-store";
+import {
+  getCurrentPdfRootId,
+  getPdfVersion,
+  useDocumentStore,
+} from "@/stores/document-store";
 import { useLayoutStore } from "@/stores/layout-store";
 import { useSyncTexStore } from "@/stores/synctex-store";
 
@@ -30,13 +36,14 @@ function buildPreviewSnapshot(): PreviewPaneSnapshot {
     openFileIds: state.openFileIds,
     pdfRootId: getCurrentPdfRootId(),
     pdfRevision: state.pdfRevision,
+    pdfContentRevision: getPdfVersion(getCurrentPdfRootId()),
+    full: true,
     compileError: state.compileError,
     isCompiling: state.isCompiling,
   };
 }
 
-function pickChatSnapshot() {
-  const state = useClaudeChatStore.getState();
+function pickChatSnapshot(state = useClaudeChatStore.getState()) {
   return {
     messages: state.messages,
     sessionId: state.sessionId,
@@ -66,18 +73,37 @@ export function useMainPaneBridge() {
     if (parseDetachedPane()) return;
 
     const unlisten: Array<() => void> = [];
+    let disposed = false;
+    const register = (fn: () => void) => (disposed ? fn() : unlisten.push(fn));
 
     void listen<string>(PANE_EVENTS.hello, (event) => {
       if (event.payload === "preview") {
-        void emit(PANE_EVENTS.previewState, buildPreviewSnapshot());
+        void emitTo(
+          paneWindowLabel(event.payload as "preview" | "chat"),
+          PANE_EVENTS.previewState,
+          buildPreviewSnapshot(),
+        );
         const view = useSyncTexStore.getState().viewRequest;
-        if (view) void emit(PANE_EVENTS.synctexView, view);
+        if (view)
+          void emitTo(
+            paneWindowLabel("preview"),
+            PANE_EVENTS.synctexView,
+            view,
+          );
       }
       if (event.payload === "chat") {
-        void emit(PANE_EVENTS.chatState, pickChatSnapshot());
-        void emit(PANE_EVENTS.previewState, buildPreviewSnapshot());
+        void emitTo(
+          paneWindowLabel("chat"),
+          PANE_EVENTS.chatState,
+          pickChatSnapshot(),
+        );
+        void emitTo(
+          paneWindowLabel(event.payload as "preview" | "chat"),
+          PANE_EVENTS.previewState,
+          buildPreviewSnapshot(),
+        );
       }
-    }).then((fn) => unlisten.push(fn));
+    }).then(register);
 
     void listen<string>(PANE_EVENTS.closed, (event) => {
       if (event.payload === "preview") {
@@ -86,13 +112,11 @@ export function useMainPaneBridge() {
       if (event.payload === "chat") {
         useLayoutStore.getState().setChatMode("docked");
       }
-    }).then((fn) => unlisten.push(fn));
+    }).then(register);
 
-    void listen(PANE_EVENTS.compile, () => {
-      const state = useDocumentStore.getState();
-      if (!state.activeFileId) return;
-      void compileIndependentRoots([state.activeFileId]);
-    }).then((fn) => unlisten.push(fn));
+    void listen<PreviewCompilePayload>(PANE_EVENTS.compile, (event) => {
+      void compileFromPreview(event.payload).catch(() => {});
+    }).then(register);
 
     void listen<SynctexJumpPayload>(PANE_EVENTS.synctexJump, (event) => {
       jumpEditorToSynctexSource(
@@ -100,36 +124,90 @@ export function useMainPaneBridge() {
         event.payload.line,
         event.payload.column,
       );
-    }).then((fn) => unlisten.push(fn));
+    }).then(register);
 
     void listen<ChatCallPayload>(PANE_EVENTS.chatCall, (event) => {
       const fn = useClaudeChatStore.getState()[event.payload.name];
       if (typeof fn === "function") {
         void (fn as (...args: unknown[]) => unknown)(...event.payload.args);
       }
-    }).then((fn) => unlisten.push(fn));
+    }).then(register);
 
     return () => {
+      disposed = true;
       for (const stop of unlisten) stop();
     };
   }, []);
 
   useEffect(() => {
-    if (parseDetachedPane() || !previewFloating) return;
-    void emit(PANE_EVENTS.previewState, buildPreviewSnapshot());
+    if (parseDetachedPane() || (!previewFloating && chatMode !== "floating"))
+      return;
+    let previous = buildPreviewSnapshot();
+    const send = (snapshot: PreviewPaneSnapshot) => {
+      if (previewFloating)
+        void emitTo(
+          paneWindowLabel("preview"),
+          PANE_EVENTS.previewState,
+          snapshot,
+        );
+      if (chatMode === "floating")
+        void emitTo(
+          paneWindowLabel("chat"),
+          PANE_EVENTS.previewState,
+          snapshot,
+        );
+    };
+    send(previous);
     let docTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsubDoc = useDocumentStore.subscribe(() => {
-      if (docTimer) clearTimeout(docTimer);
+    const unsubDoc = useDocumentStore.subscribe((state, prev) => {
+      if (
+        state.files === prev.files &&
+        state.projectRoot === prev.projectRoot &&
+        state.activeFileId === prev.activeFileId &&
+        state.openFileIds === prev.openFileIds &&
+        state.pdfRevision === prev.pdfRevision &&
+        state.compileError === prev.compileError &&
+        state.isCompiling === prev.isCompiling
+      )
+        return;
+      if (docTimer) return;
       docTimer = setTimeout(() => {
-        void emit(PANE_EVENTS.previewState, buildPreviewSnapshot());
+        docTimer = null;
+        const next = buildPreviewSnapshot();
+        if (next.projectRoot !== previous.projectRoot) send(next);
+        else {
+          const old = new Map(previous.files.map((file) => [file.id, file]));
+          const ids = new Set(next.files.map((file) => file.id));
+          send({
+            ...next,
+            full: false,
+            files: next.files.filter(
+              (file) =>
+                !old.has(file.id) ||
+                Object.entries(file).some(
+                  ([key, value]) =>
+                    value !== old.get(file.id)?.[key as keyof typeof file],
+                ),
+            ),
+            removedFileIds: previous.files
+              .filter((file) => !ids.has(file.id))
+              .map((file) => file.id),
+          });
+        }
+        previous = next;
       }, 80);
     });
     const unsubSync = useSyncTexStore.subscribe((state, prev) => {
       if (
+        previewFloating &&
         state.viewRequest &&
         state.viewRequest.nonce !== prev.viewRequest?.nonce
       ) {
-        void emit(PANE_EVENTS.synctexView, state.viewRequest);
+        void emitTo(
+          paneWindowLabel("preview"),
+          PANE_EVENTS.synctexView,
+          state.viewRequest,
+        );
       }
     });
     return () => {
@@ -137,31 +215,34 @@ export function useMainPaneBridge() {
       unsubDoc();
       unsubSync();
     };
-  }, [previewFloating]);
+  }, [previewFloating, chatMode]);
 
   useEffect(() => {
     if (parseDetachedPane() || chatMode !== "floating") return;
-    void emit(PANE_EVENTS.chatState, pickChatSnapshot());
-    void emit(PANE_EVENTS.previewState, buildPreviewSnapshot());
-    let chatTimer: ReturnType<typeof setTimeout> | null = null;
-    let docTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsubChat = useClaudeChatStore.subscribe(() => {
-      if (chatTimer) clearTimeout(chatTimer);
-      chatTimer = setTimeout(() => {
-        void emit(PANE_EVENTS.chatState, pickChatSnapshot());
+    let previous = pickChatSnapshot();
+    void emitTo(paneWindowLabel("chat"), PANE_EVENTS.chatState, previous);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = useClaudeChatStore.subscribe((state, prev) => {
+      const next = pickChatSnapshot(state);
+      const before = pickChatSnapshot(prev);
+      const keys = Object.keys(next) as Array<keyof typeof next>;
+      if (keys.every((key) => next[key] === before[key])) return;
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        const latest = pickChatSnapshot();
+        const delta = Object.fromEntries(
+          Object.entries(latest).filter(
+            ([key, value]) => value !== previous[key as keyof typeof previous],
+          ),
+        );
+        previous = latest;
+        void emitTo(paneWindowLabel("chat"), PANE_EVENTS.chatState, delta);
       }, 32);
     });
-    const unsubDoc = useDocumentStore.subscribe(() => {
-      if (docTimer) clearTimeout(docTimer);
-      docTimer = setTimeout(() => {
-        void emit(PANE_EVENTS.previewState, buildPreviewSnapshot());
-      }, 80);
-    });
     return () => {
-      if (chatTimer) clearTimeout(chatTimer);
-      if (docTimer) clearTimeout(docTimer);
-      unsubChat();
-      unsubDoc();
+      if (timer) clearTimeout(timer);
+      unsub();
     };
   }, [chatMode]);
 }
