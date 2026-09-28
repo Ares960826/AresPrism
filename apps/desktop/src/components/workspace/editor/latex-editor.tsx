@@ -495,9 +495,15 @@ export function LatexEditor() {
           if (file) {
             useSyncTexStore.getState().setFollowPaused(false);
             followTimerRef.current = setTimeout(() => {
-              if (useSyncTexStore.getState().followPaused) return;
+              if (
+                useSyncTexStore.getState().followPaused ||
+                useDocumentStore.getState().activeFileId !== file.id ||
+                !useDocumentStore.getState().files.includes(file)
+              )
+                return;
               useSyncTexStore.getState().requestView({
                 file: file.relativePath,
+                projectRoot: useDocumentStore.getState().projectRoot,
                 line: line.number,
                 column: head - line.from + 1,
                 word: null,
@@ -734,6 +740,7 @@ export function LatexEditor() {
                   : null;
               useSyncTexStore.getState().requestView({
                 file: file.relativePath,
+                projectRoot: useDocumentStore.getState().projectRoot,
                 line: line.number,
                 column: pos - line.from + 1,
                 word,

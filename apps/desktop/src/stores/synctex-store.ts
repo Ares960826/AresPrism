@@ -4,6 +4,7 @@ export type SyncTexViewReason = "cursor" | "dblclick";
 
 export interface SyncTexViewRequest {
   file: string;
+  projectRoot?: string | null;
   line: number;
   column: number;
   word: string | null;

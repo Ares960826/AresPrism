@@ -247,12 +247,14 @@ export async function synctexView(
   file: string,
   line: number,
   mainFile?: string,
+  column?: number,
 ): Promise<SynctexViewResult | null> {
   try {
     const result = await invoke<SynctexViewResult>("synctex_view", {
       projectDir,
       file,
       line,
+      column: column ?? 1,
       mainFile: mainFile ?? null,
     });
     if (result)

@@ -1,3 +1,4 @@
+import { AppZoomControls } from "@/components/app-zoom-controls";
 import { useTheme } from "next-themes";
 import { useEffect, useState, useId } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -91,6 +92,9 @@ export function AppearanceSettings() {
             </button>
           ))}
         </div>
+      </Field>
+      <Field label="App zoom">
+        <AppZoomControls />
       </Field>
       <Field label="App font">
         <Select

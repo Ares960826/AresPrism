@@ -1,3 +1,4 @@
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import {
   type ComponentType,
   type ReactNode,
@@ -14,6 +15,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import {
   FolderOpenIcon,
+  Trash2Icon,
   XIcon,
   FileTextIcon,
   SparklesIcon,
@@ -94,11 +96,14 @@ export function ProjectPicker() {
   const [searchQuery, setSearchQuery] = useState("");
   const [removeProjectTarget, setRemoveProjectTarget] =
     useState<RecentProject | null>(null);
+  const [trashTarget, setTrashTarget] = useState<RecentProject | null>(null);
+  const [trashing, setTrashing] = useState(false);
   const defaultProjectsDiscoveredRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { theme = "system", setTheme } = useTheme();
   const searchShortcutLabel = "⌘ K";
 
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const recentProjects = useProjectStore((s) => s.recentProjects);
   const addRecentProject = useProjectStore((s) => s.addRecentProject);
   const removeRecentProject = useProjectStore((s) => s.removeRecentProject);
@@ -174,6 +179,7 @@ export function ProjectPicker() {
         title: "Open Project Folder",
       });
       if (typeof selected === "string" && selected) {
+        useWorkspaceStore.getState().closeWorkspace();
         await openProject(selected);
         addRecentProject(selected);
       }
@@ -187,6 +193,7 @@ export function ProjectPicker() {
 
   const handleOpenRecent = async (path: string) => {
     try {
+      useWorkspaceStore.getState().closeWorkspace();
       await openProject(path);
       addRecentProject(path);
     } catch (err) {
@@ -455,7 +462,7 @@ export function ProjectPicker() {
             </div>
           ) : (
             <div className="flex w-full flex-col gap-4 px-5 py-5">
-              {visibleProjects.length === 0 ? (
+              {visibleProjects.length === 0 && workspaces.length === 0 ? (
                 <div className="flex min-h-80 flex-col items-center justify-center rounded-lg border border-border border-dashed bg-muted/10 px-6 text-center">
                   <FileTextIcon className="mb-4 size-10 text-muted-foreground/70" />
                   <h2 className="font-semibold text-lg">
@@ -474,12 +481,33 @@ export function ProjectPicker() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
+                  {workspaces.map((workspace) => (
+                    <Button
+                      key={workspace.id}
+                      variant="outline"
+                      className="justify-start"
+                      onClick={() =>
+                        void useWorkspaceStore
+                          .getState()
+                          .openWorkspace(workspace.id)
+                          .catch((error) => toast.error(String(error)))
+                      }
+                    >
+                      {workspace.name} · {workspace.roots.length} folders
+                    </Button>
+                  ))}
                   {visibleProjects.map((project) => (
                     <ProjectListRow
                       key={project.path}
                       project={project}
                       onOpen={() => handleOpenRecent(project.path)}
                       onRemove={() => setRemoveProjectTarget(project)}
+                      onReveal={() =>
+                        void invoke("reveal_project", {
+                          path: project.path,
+                        }).catch((error) => toast.error(String(error)))
+                      }
+                      onTrash={() => setTrashTarget(project)}
                     />
                   ))}
                 </div>
@@ -533,6 +561,55 @@ export function ProjectPicker() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={!!trashTarget}
+        onOpenChange={(open) => {
+          if (!open && !trashing) setTrashTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move project to Trash?</DialogTitle>
+            <DialogDescription>
+              The entire directory and all source files will be removed from
+              their current location. You can restore them from the system
+              Trash.
+            </DialogDescription>
+            <p className="break-all text-sm">{trashTarget?.path}</p>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={trashing}
+              onClick={() => setTrashTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={trashing}
+              onClick={async () => {
+                if (!trashTarget) return;
+                setTrashing(true);
+                try {
+                  await invoke("trash_project", { path: trashTarget.path });
+                  removeRecentProject(trashTarget.path);
+                  useWorkspaceStore.getState().forgetRoot(trashTarget.path);
+                  setTrashTarget(null);
+                } catch (error) {
+                  toast.error("Could not move project to Trash", {
+                    description: String(error),
+                  });
+                } finally {
+                  setTrashing(false);
+                }
+              }}
+            >
+              {trashing ? "Moving…" : "Move to Trash"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!removeProjectTarget}
         onOpenChange={(open) => {
@@ -593,10 +670,14 @@ function ProjectListRow({
   project,
   onOpen,
   onRemove,
+  onReveal,
+  onTrash,
 }: {
   project: RecentProject;
   onOpen: () => void;
   onRemove: () => void;
+  onReveal: () => void;
+  onTrash: () => void;
 }) {
   const opened = formatOpenedDate(project.lastOpened);
   return (
@@ -614,6 +695,26 @@ function ProjectListRow({
           </div>
         </div>
       </button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0"
+        title="Reveal in Finder"
+        aria-label={`Reveal ${project.name} in Finder`}
+        onClick={onReveal}
+      >
+        <FolderOpenIcon className="size-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0 text-destructive"
+        title="Move project to Trash"
+        aria-label={`Move ${project.name} to Trash`}
+        onClick={onTrash}
+      >
+        <Trash2Icon className="size-3.5" />
+      </Button>
       <Button
         variant="ghost"
         size="icon"

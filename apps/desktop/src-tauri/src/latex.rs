@@ -1430,7 +1430,13 @@ pub async fn synctex_edit(
     let build = keyed
         .as_ref()
         .and_then(|key| builds.get(key))
-        .or_else(|| builds.get(&project_dir))
+        .or_else(|| {
+            if keyed.is_none() {
+                builds.get(&project_dir)
+            } else {
+                None
+            }
+        })
         .ok_or("No build found for this project")?;
 
     let build = build.clone();
@@ -1483,6 +1489,7 @@ pub async fn synctex_view(
     file: String,
     line: u32,
     main_file: Option<String>,
+    column: Option<u32>,
 ) -> Result<SynctexViewResult, String> {
     let builds = state.last_builds.lock().await;
     let keyed = main_file
@@ -1491,14 +1498,25 @@ pub async fn synctex_view(
     let build = keyed
         .as_ref()
         .and_then(|key| builds.get(key))
-        .or_else(|| builds.get(&project_dir))
+        .or_else(|| {
+            if keyed.is_none() {
+                builds.get(&project_dir)
+            } else {
+                None
+            }
+        })
         .ok_or("No build found for this project")?;
 
     let build = build.clone();
     drop(builds);
     let (page, x, y, width, height) = tokio::task::spawn_blocking(move || {
-        let index = build_synctex_index(&build)?;
         let compile_file = project_source_to_compile(&file, &build.source_prefix);
+        if let Some(location) =
+            native_synctex_view(&build, &compile_file, line, column.unwrap_or(1))
+        {
+            return Ok(location);
+        }
+        let index = build_synctex_index(&build)?;
         synctex_view_lookup(&index, &compile_file, line)
             .ok_or_else(|| "Could not resolve PDF location".to_string())
     })
@@ -1514,6 +1532,44 @@ pub async fn synctex_view(
     })
 }
 
+fn native_synctex_view(
+    build: &BuildInfo,
+    file: &str,
+    line: u32,
+    column: u32,
+) -> Option<(u32, f64, f64, f64, f64)> {
+    let binary = find_texlive_binary("synctex").ok()?;
+    let mut command = std::process::Command::new(binary);
+    command
+        .current_dir(&build.work_dir)
+        .args(["view", "-i", &format!("{line}:{column}:{file}"), "-o"])
+        .arg(build.work_dir.join(format!("{}.pdf", build.main_file_name)));
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_synctex_view_output(&String::from_utf8_lossy(&output.stdout))
+}
+fn parse_synctex_view_output(output: &str) -> Option<(u32, f64, f64, f64, f64)> {
+    let mut fields = HashMap::new();
+    for line in output.lines() {
+        if line.starts_with("SyncTeX result end") {
+            break;
+        }
+        if let Some((key, value)) = line.split_once(':') {
+            fields.entry(key).or_insert(value.trim());
+        }
+    }
+    let page = fields.get("Page")?.parse().ok()?;
+    let x: f64 = fields.get("x")?.parse().ok()?;
+    let y: f64 = fields.get("y")?.parse().ok()?;
+    let width: f64 = fields.get("W").and_then(|s| s.parse().ok()).unwrap_or(72.0);
+    let height: f64 = fields.get("H").and_then(|s| s.parse().ok()).unwrap_or(12.0);
+    Some((page, x, y, width.abs().max(1.0), height.abs().max(1.0)))
+}
+
 /// Clear in-memory build state on app exit.
 /// Persistent build directories are intentionally kept for fast restart.
 pub async fn cleanup_all_builds(state: &LatexCompilerState) {
@@ -1526,6 +1582,41 @@ mod tests {
     use super::*;
 
     // --- detect_bib_tool ---
+
+    #[test]
+    fn native_synctex_locates_included_source_in_each_parallel_root() {
+        if find_texlive_binary("pdflatex").is_err() || find_texlive_binary("synctex").is_err() {
+            return;
+        }
+        let parent = tempfile::tempdir().unwrap();
+        for (name, pages) in [("a", 1), ("b", 2)] {
+            let dir = parent.path().join(name);
+            std::fs::create_dir_all(dir.join("sections")).unwrap();
+            let prefix = "First page.\\newpage\n".repeat(pages);
+            std::fs::write(dir.join("main.tex"), format!("\\documentclass{{article}}\n\\begin{{document}}\n{prefix}\\input{{sections/method}}\n\\end{{document}}\n")).unwrap();
+            std::fs::write(
+                dir.join("sections/method.tex"),
+                "Method target on its own page.\n",
+            )
+            .unwrap();
+            compile_with_texlive(
+                &dir,
+                "main.tex",
+                TexEngine::Latex,
+                &std::fs::read_to_string(dir.join("main.tex")).unwrap(),
+            )
+            .unwrap();
+            let build = BuildInfo {
+                work_dir: dir,
+                main_file_name: "main".into(),
+                source_prefix: name.into(),
+                synctex_index: Arc::new(std::sync::Mutex::new(None)),
+            };
+            let location = native_synctex_view(&build, "sections/method.tex", 1, 1).unwrap();
+            assert_eq!(location.0, pages as u32 + 1);
+            assert!(location.1.is_finite() && location.2.is_finite());
+        }
+    }
 
     #[test]
     fn nested_synctex_paths_round_trip_to_project_files() {

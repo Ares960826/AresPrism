@@ -1,3 +1,5 @@
+import { WorkspaceFolders } from "./workspace-folders";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import { FileTypeIcon } from "@/components/workspace/file-type-icon";
 import {
   useState,
@@ -1221,7 +1223,11 @@ export function Sidebar({
           variant="ghost"
           size="icon"
           className="size-7 transition-transform duration-300 ease-in-out hover:scale-105"
-          onClick={() => void closeProject().catch(() => {})}
+          onClick={() =>
+            void closeProject()
+              .then(() => useWorkspaceStore.getState().closeWorkspace())
+              .catch(() => {})
+          }
           title="Close Project"
           aria-label="Close Project"
         >
@@ -1261,7 +1267,11 @@ export function Sidebar({
                 variant="ghost"
                 size="icon"
                 className="size-6 transition-all duration-150 ease-out hover:scale-105"
-                onClick={() => void closeProject().catch(() => {})}
+                onClick={() =>
+                  void closeProject()
+                    .then(() => useWorkspaceStore.getState().closeWorkspace())
+                    .catch(() => {})
+                }
                 title="Close Project"
                 aria-label="Close Project"
               >
@@ -1341,6 +1351,36 @@ export function Sidebar({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            if (!projectRoot) return;
+                            const selected = await openDialog({
+                              directory: true,
+                              multiple: true,
+                              title: "Add folders to workspace",
+                            });
+                            const roots =
+                              typeof selected === "string"
+                                ? [selected]
+                                : selected;
+                            if (!roots?.length) return;
+                            const workspace = useWorkspaceStore.getState();
+                            if (!workspace.activeId)
+                              workspace.createWorkspace(projectRoot);
+                            for (const root of roots)
+                              useWorkspaceStore.getState().addRoot(root);
+                          }}
+                        >
+                          Create workspace / Add project folders…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            useWorkspaceStore.getState().closeWorkspace()
+                          }
+                        >
+                          Use current project only
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => openNewFileDialog()}>
                           <FileTextIcon className="mr-2 size-4" />
                           New LaTeX File
@@ -1368,39 +1408,41 @@ export function Sidebar({
                       <DroppableRoot
                         nativeDragOver={nativeDragOver === "__root__"}
                       >
-                        {tree.map((node) => (
-                          <FileTreeNode
-                            key={node.relativePath}
-                            node={node}
-                            depth={0}
-                            activeFileId={activeFileId}
-                            selectedItemKeys={selectedItemKeys}
-                            expandedFolders={expandedFolders}
-                            onToggleFolder={toggleFolder}
-                            onSelectFile={(id: string) => {
-                              const parent = parentFolderOfPath(id);
-                              setPasteTargetFolder(parent);
-                              replaceOpenFile(id);
-                            }}
-                            onOpenInNewTab={(id: string) => {
-                              const parent = parentFolderOfPath(id);
-                              setPasteTargetFolder(parent);
-                              openFileInTab(id);
-                            }}
-                            onItemClick={handleTreeItemClick}
-                            onItemContextMenu={handleTreeItemContextMenu}
-                            onNewFile={openNewFileDialog}
-                            onNewFolder={openNewFolderDialog}
-                            onImport={handleImport}
-                            onRename={openRenameDialog}
-                            onDeleteSelection={requestDeleteSelection}
-                            canDeleteSelection={canDeleteSelection}
-                            getEffectiveSelectionCount={
-                              getEffectiveSelectionCount
-                            }
-                            nativeDragOver={nativeDragOver}
-                          />
-                        ))}
+                        <WorkspaceFolders>
+                          {tree.map((node) => (
+                            <FileTreeNode
+                              key={node.relativePath}
+                              node={node}
+                              depth={0}
+                              activeFileId={activeFileId}
+                              selectedItemKeys={selectedItemKeys}
+                              expandedFolders={expandedFolders}
+                              onToggleFolder={toggleFolder}
+                              onSelectFile={(id: string) => {
+                                const parent = parentFolderOfPath(id);
+                                setPasteTargetFolder(parent);
+                                replaceOpenFile(id);
+                              }}
+                              onOpenInNewTab={(id: string) => {
+                                const parent = parentFolderOfPath(id);
+                                setPasteTargetFolder(parent);
+                                openFileInTab(id);
+                              }}
+                              onItemClick={handleTreeItemClick}
+                              onItemContextMenu={handleTreeItemContextMenu}
+                              onNewFile={openNewFileDialog}
+                              onNewFolder={openNewFolderDialog}
+                              onImport={handleImport}
+                              onRename={openRenameDialog}
+                              onDeleteSelection={requestDeleteSelection}
+                              canDeleteSelection={canDeleteSelection}
+                              getEffectiveSelectionCount={
+                                getEffectiveSelectionCount
+                              }
+                              nativeDragOver={nativeDragOver}
+                            />
+                          ))}
+                        </WorkspaceFolders>
                       </DroppableRoot>
                     </ContextMenuTrigger>
                     <ContextMenuContent>

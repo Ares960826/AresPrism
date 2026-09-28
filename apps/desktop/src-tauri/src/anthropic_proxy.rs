@@ -25,6 +25,7 @@ pub(crate) struct OpenAiProxyCredential {
 
 pub(crate) async fn start_openai_anthropic_proxy(
     credential: OpenAiProxyCredential,
+    session_id: String,
 ) -> Result<String, String> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .await
@@ -40,8 +41,9 @@ pub(crate) async fn start_openai_anthropic_proxy(
                 break;
             };
             let credential = Arc::clone(&credential);
+            let session_id = session_id.clone();
             tokio::spawn(async move {
-                if let Err(err) = handle_connection(stream, credential).await {
+                if let Err(err) = handle_connection(stream, credential, &session_id).await {
                     eprintln!("[anthropic-proxy] request failed: {}", err);
                 }
             });
@@ -54,11 +56,12 @@ pub(crate) async fn start_openai_anthropic_proxy(
 async fn handle_connection(
     mut stream: TcpStream,
     credential: Arc<OpenAiProxyCredential>,
+    session_id: &str,
 ) -> Result<(), String> {
     let request = read_http_request(&mut stream).await?;
     let path = request_path_without_query(&request.path);
     if request.method == "POST" && is_messages_path(path) {
-        match handle_messages_to_stream(&request, &credential, &mut stream).await {
+        match handle_messages_to_stream(&request, &credential, &mut stream, session_id).await {
             Ok(()) => {
                 let _ = stream.shutdown().await;
                 return Ok(());
@@ -214,6 +217,7 @@ async fn handle_messages_to_stream(
     request: &HttpRequest,
     credential: &OpenAiProxyCredential,
     stream: &mut TcpStream,
+    session_id: &str,
 ) -> Result<(), String> {
     let anthropic_request: Value = serde_json::from_slice(&request.body)
         .map_err(|err| format!("Claude Code sent invalid Anthropic JSON: {}", err))?;
@@ -246,9 +250,17 @@ async fn handle_messages_to_stream(
         .build()
         .map_err(|err| format!("Failed to create provider client: {}", err))?;
     let request = client
-        .post(openai_chat_completions_url(&credential.base_url))
+        .post(if crate::go_provider::is_go(&credential.base_url) {
+            crate::go_provider::endpoint(&credential.base_url, &credential.model)
+        } else {
+            openai_chat_completions_url(&credential.base_url)
+        })
         .header("Content-Type", "application/json")
-        .body(openai_request.to_string());
+        .body(
+            crate::go_provider::body(&credential.base_url, &credential.model, openai_request)
+                .to_string(),
+        );
+    let request = crate::go_provider::headers(request, &credential.base_url, session_id);
     let response = with_optional_bearer_auth(request, &credential.api_key)
         .send()
         .await
@@ -283,6 +295,11 @@ async fn handle_messages_to_stream(
                 .map_err(|err| format!("Failed to read provider response: {}", err))?;
             let openai_response: Value = serde_json::from_str(&response_text)
                 .map_err(|err| format!("Provider returned invalid JSON: {}", err))?;
+            let openai_response = crate::go_provider::chat_response(
+                &credential.base_url,
+                &credential.model,
+                openai_response,
+            );
             let anthropic_response =
                 openai_to_anthropic_message(&anthropic_request, &openai_response, credential)?;
             stream
@@ -297,6 +314,11 @@ async fn handle_messages_to_stream(
             .map_err(|err| format!("Failed to read provider response: {}", err))?;
         let openai_response: Value = serde_json::from_str(&response_text)
             .map_err(|err| format!("Provider returned invalid JSON: {}", err))?;
+        let openai_response = crate::go_provider::chat_response(
+            &credential.base_url,
+            &credential.model,
+            openai_response,
+        );
         let anthropic_response =
             openai_to_anthropic_message(&anthropic_request, &openai_response, credential)?;
         stream

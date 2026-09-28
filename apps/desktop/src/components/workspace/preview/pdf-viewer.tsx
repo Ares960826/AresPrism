@@ -1,3 +1,5 @@
+import { pdfPageScrollTop } from "@/lib/pdf-scroll-position";
+import { observePreviewScroll } from "@/lib/pdf-scroll-observer";
 import { scrollPositionCache } from "@/lib/workspace-view-cache";
 import {
   useCallback,
@@ -215,7 +217,7 @@ interface PdfViewerProps {
         width: number;
         height: number;
         word?: string | null;
-      }) => void)
+      }) => boolean)
     | null
   >;
   onUserScroll?: () => void;
@@ -278,6 +280,8 @@ export function PdfViewer({
   } | null>(null);
   const gesturePinchRef = useRef<{ scale: number } | null>(null);
   const programmaticScrollRef = useRef(false);
+  const userScrollRef = useRef(onUserScroll);
+  userScrollRef.current = onUserScroll;
   const synctexClickRef = useRef(onSynctexClick);
   synctexClickRef.current = onSynctexClick;
   const textSelectRef = useRef(onTextSelect);
@@ -726,24 +730,13 @@ export function PdfViewer({
     const container = containerRef.current;
     if (!container || !isActive) return;
 
-    let rafId = 0;
-    const handleScroll = () => {
-      if (!programmaticScrollRef.current) onUserScroll?.();
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const cb = currentPageChangeRef.current;
-        if (cb) cb(getVisiblePage());
-      });
-    };
-
-    container.addEventListener("scroll", handleScroll, { passive: true });
-    // Fire initial value
-    handleScroll();
-    return () => {
-      container.removeEventListener("scroll", handleScroll);
-      cancelAnimationFrame(rafId);
-    };
-  }, [pageSizes, isActive, onUserScroll]);
+    return observePreviewScroll(
+      container,
+      () => currentPageChangeRef.current?.(getVisiblePage()),
+      () => userScrollRef.current?.(),
+      () => programmaticScrollRef.current,
+    );
+  }, [pageSizes, isActive]);
 
   // Expose scrollToPage via ref
   useEffect(() => {
@@ -761,18 +754,18 @@ export function PdfViewer({
     if (!scrollToLocationRef) return;
     scrollToLocationRef.current = (loc) => {
       const container = containerRef.current;
-      if (!container) return;
-      programmaticScrollRef.current = true;
-      scrollToPage(container, loc.page);
+      if (!container || !isActive || container.clientHeight === 0) return false;
       const pageEl = container.querySelector(
         `[data-page-number="${loc.page}"]`,
       ) as HTMLElement | null;
-      if (pageEl) {
+      if (!pageEl || pageEl.clientHeight === 0) return false;
+      programmaticScrollRef.current = true;
+      {
         const currentScale = scaleRef.current;
-        const pageTop = pageEl.offsetTop;
+        const pageTop = pdfPageScrollTop(container, pageEl);
         const target =
           pageTop + loc.y * currentScale - container.clientHeight * 0.35;
-        container.scrollTop = Math.max(0, target);
+        container.scrollTop = Math.max(0, pageTop - 16, target);
       }
       requestAnimationFrame(() => {
         programmaticScrollRef.current = false;
@@ -808,11 +801,12 @@ export function PdfViewer({
           .catch(() => {});
       }
       window.setTimeout(() => setHighlights([]), 1800);
+      return true;
     };
     return () => {
       if (scrollToLocationRef) scrollToLocationRef.current = null;
     };
-  }, [scrollToLocationRef, pageSizes]);
+  }, [scrollToLocationRef, pageSizes, isActive]);
 
   // Dismiss selection toolbar on scroll
   useEffect(() => {
@@ -884,6 +878,8 @@ export function PdfViewer({
     const container = containerRef.current;
     if (!container || !onScaleChange) return;
 
+    let wheelTarget = scaleRef.current;
+    let lastWheelAt = 0;
     const handleWheel = (e: WheelEvent) => {
       if (!isModifiedZoomWheel(e) || !isWheelInsidePdfViewer(e, container)) {
         return;
@@ -899,7 +895,11 @@ export function PdfViewer({
       );
       const factor = getWheelZoomFactor(e, isTrackpadPinch);
       if (Math.abs(factor - 1) < 0.0001) return;
-      zoomAtPoint(scaleRef.current * factor, e.clientX, e.clientY);
+      const now = Date.now();
+      if (now - lastWheelAt > 200) wheelTarget = scaleRef.current;
+      lastWheelAt = now;
+      wheelTarget *= factor;
+      zoomAtPoint(Math.round(wheelTarget * 10) / 10, e.clientX, e.clientY);
     };
 
     window.addEventListener("wheel", handleWheel, {
@@ -933,9 +933,11 @@ export function PdfViewer({
       if (!start) return;
 
       event.preventDefault();
-      const factor =
-        (start.scale * readGestureScale(gesture)) / scaleRef.current;
-      zoomAtPoint(scaleRef.current * factor, gesture.clientX, gesture.clientY);
+      zoomAtPoint(
+        Math.round(start.scale * readGestureScale(gesture) * 10) / 10,
+        gesture.clientX,
+        gesture.clientY,
+      );
     };
 
     const handleGestureEnd: EventListener = () => {

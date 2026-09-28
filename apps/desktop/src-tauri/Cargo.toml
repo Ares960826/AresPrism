@@ -1,6 +1,6 @@
 [package]
 name = "claude-prism-desktop"
-version = "0.10.6"
+version = "0.11.0"
 description = "AresPrism local LaTeX IDE"
 edition = "2021"
 
@@ -40,6 +40,7 @@ tectonic = { version = "0.15", default-features = true, features = ["external-ha
 #   Windows: vcpkg install harfbuzz[graphite2] freetype icu fontconfig (with TECTONIC_DEP_BACKEND=vcpkg)
 flate2 = "1"
 tar = "0.4"
+trash = "5"
 
 [lints.clippy]
 unwrap_used = "deny"

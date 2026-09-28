@@ -1,5 +1,8 @@
 #![recursion_limit = "512"]
 
+mod go_provider;
+mod project_actions;
+
 mod agent_port;
 mod anthropic_proxy;
 mod claude;
@@ -196,7 +199,7 @@ fn create_new_window(app: tauri::AppHandle) -> Result<(), String> {
         .title(APP_DISPLAY_NAME)
         .inner_size(1400.0, 900.0)
         .min_inner_size(800.0, 600.0)
-        .zoom_hotkeys_enabled(true)
+        .zoom_hotkeys_enabled(false)
         .visible(false);
 
     #[cfg(target_os = "macos")]
@@ -470,7 +473,7 @@ fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
         .title(&format!("{APP_DISPLAY_NAME} — Debug"))
         .inner_size(560.0, 700.0)
         .min_inner_size(400.0, 400.0)
-        .zoom_hotkeys_enabled(true)
+        .zoom_hotkeys_enabled(false)
         .visible(true)
         .build()
         .map_err(|e| format!("Failed to create debug window: {}", e))?;
@@ -514,7 +517,7 @@ fn open_pane_window(app: tauri::AppHandle, pane: String) -> Result<(), String> {
         .resizable(true)
         .maximizable(true)
         .minimizable(true)
-        .zoom_hotkeys_enabled(true)
+        .zoom_hotkeys_enabled(false)
         .visible(true)
         .build()
         .map_err(|e| format!("Failed to create pane window: {e}"))?;
@@ -699,6 +702,8 @@ pub fn run() {
             create_new_window,
             set_native_window_theme,
             allow_project_directory,
+            project_actions::reveal_project,
+            project_actions::trash_project,
             list_default_projects,
             detect_editors,
             open_in_editor,

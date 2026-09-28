@@ -139,17 +139,18 @@ export function PdfPreview() {
   const [pageInputValue, setPageInputValue] = useState<string>("1");
   const [isEditingPage, setIsEditingPage] = useState(false);
   const scrollToPageRef = useRef<((page: number) => void) | null>(null);
-  const scrollToLocationRef = useRef<
-    | ((loc: {
-        page: number;
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        word?: string | null;
-      }) => void)
-    | null
-  >(null);
+  type LocationScroll = (loc: {
+    page: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    word?: string | null;
+  }) => boolean;
+  const locationRefs = useRef(
+    new Map<string, { current: LocationScroll | null }>(),
+  );
+  const completedViewRequest = useRef<number | null>(null);
   const setFollowPaused = useSyncTexStore((s) => s.setFollowPaused);
   const viewRequest = useSyncTexStore((s) => s.viewRequest);
   const [scale, setScale] = useState<number>(1.0);
@@ -249,24 +250,57 @@ export function PdfPreview() {
   );
 
   useEffect(() => {
-    if (!viewRequest || !projectRoot) return;
+    if (
+      !viewRequest ||
+      !projectRoot ||
+      completedViewRequest.current === viewRequest.nonce
+    )
+      return;
+    if (viewRequest.projectRoot && viewRequest.projectRoot !== projectRoot)
+      return;
+    const source = files.find((file) => file.relativePath === viewRequest.file);
+    if (!source) return;
+    const sourceRoot = resolveTexRoot(source.id, files);
+    if (sourceRoot !== currentRootFileId) {
+      if (pdfRoots.some((root) => root.id === sourceRoot))
+        setPreviewRoot(sourceRoot);
+      return;
+    }
     let cancelled = false;
     synctexView(
       projectRoot,
       viewRequest.file,
       viewRequest.line,
       currentRootFileId,
+      viewRequest.column,
     ).then((loc) => {
       if (cancelled || !loc) return;
-      scrollToLocationRef.current?.({
-        ...loc,
-        word: viewRequest.reason === "dblclick" ? viewRequest.word : null,
-      });
+      let attempts = 0;
+      const scroll = () => {
+        if (cancelled) return;
+        const target = locationRefs.current.get(sourceRoot)?.current;
+        if (
+          target?.({
+            ...loc,
+            word: viewRequest.reason === "dblclick" ? viewRequest.word : null,
+          })
+        ) {
+          completedViewRequest.current = viewRequest.nonce;
+        } else if (++attempts < 120) requestAnimationFrame(scroll);
+      };
+      scroll();
     });
     return () => {
       cancelled = true;
     };
-  }, [viewRequest, projectRoot, currentRootFileId]);
+  }, [
+    viewRequest,
+    projectRoot,
+    currentRootFileId,
+    files,
+    pdfRoots,
+    setPreviewRoot,
+  ]);
 
   // Resolved source location from synctex
   const [resolvedSource, setResolvedSource] = useState<{
@@ -686,6 +720,11 @@ export function PdfPreview() {
           const data = getPdfBytes(rootId);
           if (!data) return null;
           const isActive = rootId === currentRootFileId;
+          let locationRef = locationRefs.current.get(rootId);
+          if (!locationRef) {
+            locationRef = { current: null };
+            locationRefs.current.set(rootId, locationRef);
+          }
           return (
             <ErrorBoundary
               key={rootId}
@@ -726,9 +765,7 @@ export function PdfPreview() {
                   onUserScroll={
                     isActive ? () => setFollowPaused(true) : undefined
                   }
-                  scrollToLocationRef={
-                    isActive ? scrollToLocationRef : undefined
-                  }
+                  scrollToLocationRef={locationRef}
                   onTextSelect={isActive ? handleTextSelect : undefined}
                   onFirstPageSize={
                     isActive

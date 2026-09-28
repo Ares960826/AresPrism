@@ -47,14 +47,14 @@ describe("app zoom", () => {
     expect(localStorage.getItem(APP_ZOOM_STORAGE_KEY)).toBe("1.25");
   });
 
-  it("resets stale global zoom on startup", async () => {
+  it("restores the chosen zoom on startup", async () => {
     const webview = getCurrentWebview();
     localStorage.setItem(APP_ZOOM_STORAGE_KEY, "1.4");
 
     await initializeAppZoom();
 
-    expect(webview.setZoom).toHaveBeenCalledWith(DEFAULT_APP_ZOOM);
-    expect(localStorage.getItem(APP_ZOOM_STORAGE_KEY)).toBeNull();
+    expect(webview.setZoom).toHaveBeenCalledWith(1.4);
+    expect(localStorage.getItem(APP_ZOOM_STORAGE_KEY)).toBe("1.4");
   });
 
   it("zooms in, zooms out, and resets around the stored value", async () => {

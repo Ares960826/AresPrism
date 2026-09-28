@@ -76,6 +76,13 @@ const CLAUDE_COMPATIBLE_PRESETS: ClaudeCompatiblePreset[] = [
 
 const OPENAI_COMPATIBLE_PRESETS: OpenAICompatiblePreset[] = [
   {
+    id: "opencode-go",
+    label: "OpenCode Go",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    model: "glm-5.3",
+    note: "OpenCode Go API key. Models are fetched from Go; conversation headers are preserved.",
+  },
+  {
     id: "openai",
     label: "OpenAI",
     baseUrl: "https://api.openai.com",

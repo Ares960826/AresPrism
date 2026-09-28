@@ -1,6 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
-export const APP_ZOOM_STORAGE_KEY = "claude-prism-app-zoom";
+export const APP_ZOOM_STORAGE_KEY = "ares-prism-app-zoom";
 export const LOCAL_ZOOM_SHORTCUTS_ATTR = "data-local-zoom-shortcuts";
 export const DEFAULT_APP_ZOOM = 1;
 export const MIN_APP_ZOOM = 0.5;
@@ -43,13 +43,13 @@ async function applyAppZoom(value: number): Promise<number> {
 export async function persistAppZoom(value: number): Promise<number> {
   const zoom = await applyAppZoom(value);
   window.localStorage.setItem(APP_ZOOM_STORAGE_KEY, zoom.toString());
+  window.dispatchEvent(new CustomEvent("app-zoom-changed", { detail: zoom }));
   return zoom;
 }
 
 export function initializeAppZoom(): Promise<number> {
   installNativeWheelZoomGuard();
-  window.localStorage.removeItem(APP_ZOOM_STORAGE_KEY);
-  return applyAppZoom(DEFAULT_APP_ZOOM);
+  return applyAppZoom(readStoredAppZoom());
 }
 
 export function zoomInApp(): Promise<number> {
@@ -137,12 +137,49 @@ export function installNativeWheelZoomGuard(): void {
   if (nativeWheelZoomGuardInstalled || typeof document === "undefined") return;
   nativeWheelZoomGuardInstalled = true;
 
+  let lastWheelZoom = 0;
+  let gestureStartZoom: number | null = null;
+  document.addEventListener(
+    "gesturestart",
+    (event) => {
+      if (!shouldHandleAppZoomShortcut(event.target)) return;
+      event.preventDefault();
+      gestureStartZoom = readStoredAppZoom();
+    },
+    { passive: false },
+  );
+  document.addEventListener(
+    "gesturechange",
+    (event) => {
+      if (
+        gestureStartZoom === null ||
+        !shouldHandleAppZoomShortcut(event.target)
+      )
+        return;
+      event.preventDefault();
+      const scale = (event as Event & { scale?: number }).scale;
+      if (typeof scale === "number" && Number.isFinite(scale)) {
+        const value = clampAppZoom(
+          Math.round(gestureStartZoom * scale * 10) / 10,
+        );
+        if (value !== readStoredAppZoom()) void persistAppZoom(value);
+      }
+    },
+    { passive: false },
+  );
+  document.addEventListener("gestureend", () => {
+    gestureStartZoom = null;
+  });
   document.addEventListener(
     "wheel",
     (event) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
       if (!shouldHandleNativeWheelZoom(event)) return;
       event.preventDefault();
+      const now = Date.now();
+      if (now - lastWheelZoom < 120) return;
+      lastWheelZoom = now;
+      void (event.deltaY < 0 ? zoomInApp() : zoomOutApp());
     },
     { passive: false },
   );

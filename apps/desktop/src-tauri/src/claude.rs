@@ -2723,9 +2723,21 @@ async fn verify_openai_compatible_credential(
     let request_body = openai_compatible_verification_body(&credential.model);
 
     let request = client
-        .post(openai_chat_completions_url(&credential.base_url))
+        .post(if crate::go_provider::is_go(&credential.base_url) {
+            crate::go_provider::endpoint(&credential.base_url, &credential.model)
+        } else {
+            openai_chat_completions_url(&credential.base_url)
+        })
         .header("Content-Type", "application/json")
-        .body(request_body.to_string());
+        .body(
+            crate::go_provider::body(&credential.base_url, &credential.model, request_body)
+                .to_string(),
+        );
+    let request = crate::go_provider::headers(
+        request,
+        &credential.base_url,
+        "aresprism-provider-verification",
+    );
     let response = with_optional_bearer_auth(request, &credential.api_key)
         .send()
         .await
@@ -2769,7 +2781,15 @@ async fn verify_native_anthropic_credential(
         .post(anthropic_messages_url(anthropic_base_url))
         .header("Content-Type", "application/json")
         .header("anthropic-version", "2023-06-01")
-        .body(request_body.to_string());
+        .body(
+            crate::go_provider::body(&credential.base_url, &credential.model, request_body)
+                .to_string(),
+        );
+    let request = crate::go_provider::headers(
+        request,
+        &credential.base_url,
+        "aresprism-provider-verification",
+    );
     let response = with_optional_anthropic_key(request, &credential.api_key)
         .send()
         .await
@@ -2826,9 +2846,21 @@ async fn send_openai_compatible_no_tools_text_request(
     });
 
     let request = client
-        .post(openai_chat_completions_url(&credential.base_url))
+        .post(if crate::go_provider::is_go(&credential.base_url) {
+            crate::go_provider::endpoint(&credential.base_url, &credential.model)
+        } else {
+            openai_chat_completions_url(&credential.base_url)
+        })
         .header("Content-Type", "application/json")
-        .body(request_body.to_string());
+        .body(
+            crate::go_provider::body(&credential.base_url, &credential.model, request_body)
+                .to_string(),
+        );
+    let request = crate::go_provider::headers(
+        request,
+        &credential.base_url,
+        "aresprism-provider-verification",
+    );
     let response = with_optional_bearer_auth(request, &credential.api_key)
         .send()
         .await
@@ -2848,6 +2880,8 @@ async fn send_openai_compatible_no_tools_text_request(
 
     let response: serde_json::Value = serde_json::from_str(&response_text)
         .map_err(|err| format!("Provider returned invalid JSON: {}", err))?;
+    let response =
+        crate::go_provider::chat_response(&credential.base_url, &credential.model, response);
     let message = response.pointer("/choices/0/message");
     let content = message
         .and_then(|message| message.get("content"))
@@ -2889,7 +2923,15 @@ async fn send_native_anthropic_no_tools_text_request(
         .post(anthropic_messages_url(anthropic_base_url))
         .header("Content-Type", "application/json")
         .header("anthropic-version", "2023-06-01")
-        .body(request_body.to_string());
+        .body(
+            crate::go_provider::body(&credential.base_url, &credential.model, request_body)
+                .to_string(),
+        );
+    let request = crate::go_provider::headers(
+        request,
+        &credential.base_url,
+        "aresprism-provider-verification",
+    );
     let response = with_optional_anthropic_key(request, &credential.api_key)
         .send()
         .await
@@ -2909,6 +2951,8 @@ async fn send_native_anthropic_no_tools_text_request(
 
     let response: serde_json::Value = serde_json::from_str(&response_text)
         .map_err(|err| format!("Provider returned invalid JSON: {}", err))?;
+    let response =
+        crate::go_provider::chat_response(&credential.base_url, &credential.model, response);
     let content = response
         .get("content")
         .and_then(|value| value.as_array())
@@ -2949,13 +2993,16 @@ async fn execute_openai_compatible_via_claude_proxy(
         .get(&credential.model)
         .cloned()
         .unwrap_or_default();
-    let proxy_url = start_openai_anthropic_proxy(OpenAiProxyCredential {
-        api_key: credential.api_key.clone(),
-        base_url: credential.base_url.clone(),
-        model: credential.model.clone(),
-        transformers: credential.transformers.clone(),
-        model_transformers,
-    })
+    let proxy_url = start_openai_anthropic_proxy(
+        OpenAiProxyCredential {
+            api_key: credential.api_key.clone(),
+            base_url: credential.base_url.clone(),
+            model: credential.model.clone(),
+            transformers: credential.transformers.clone(),
+            model_transformers,
+        },
+        tab_id.clone(),
+    )
     .await?;
     let claude_path = find_claude_binary()?;
 
@@ -3081,6 +3128,11 @@ fn uses_native_anthropic_route(credential: &StoredOpenAiCompatibleCredential) ->
 fn native_anthropic_base_url(credential: &StoredOpenAiCompatibleCredential) -> Option<String> {
     let origin = http_origin(&credential.base_url)?;
     let lower_origin = origin.to_ascii_lowercase();
+    if crate::go_provider::is_go(&credential.base_url)
+        && (credential.model.starts_with("minimax-") || credential.model.starts_with("qwen"))
+    {
+        return Some("https://opencode.ai/zen/go/v1".into());
+    }
     if lower_origin == "https://api.deepseek.com" {
         let lower = credential.base_url.to_ascii_lowercase();
         if let Some(index) = lower.find("/anthropic") {
