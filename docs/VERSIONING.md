@@ -27,6 +27,7 @@ AresPrism uses its own SemVer. It does not continue ClaudePrism’s 1.x numbers.
 | **0.11.0** | Optional multi-folder workspaces, Finder/Trash, stepped zoom, OpenCode Go, SyncTeX |
 | **0.10.6** | Ctrl+S compile, file format icons, OAuth model discovery, CLI diagnostics |
 | **0.12.0** | Cmd+S compiles, Add to chat quotes, PDF text selection, Tab completion, wrap modes, leaner agent context |
+| **0.12.1** | Safe version restore with Undo; full history list; labels with any name; figure PDFs versioned |
 | 0.x.y | Ongoing work. Patch `y` for fixes; minor `x` for user-visible features |
 | 1.0.0 | When this app is the daily driver for paper writing |
 
