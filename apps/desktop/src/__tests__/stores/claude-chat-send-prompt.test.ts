@@ -89,6 +89,7 @@ function setMockDocumentState(overrides: Partial<any> = {}) {
     saveAllFiles: vi.fn(() => Promise.resolve()),
     refreshFiles: vi.fn(() => Promise.resolve()),
     reloadFile: vi.fn(() => Promise.resolve()),
+    isRestoreInProgress: vi.fn(() => false),
     ...overrides,
   };
 
@@ -170,6 +171,21 @@ describe("useClaudeChatStore.sendPrompt context assembly", () => {
       "/project",
       "[claude] Before Claude edit",
     );
+  });
+
+  it("refuses to send while a version restore is running", async () => {
+    setMockDocumentState({ isRestoreInProgress: vi.fn(() => true) });
+
+    await useClaudeChatStore.getState().sendPrompt("Edit the intro");
+
+    expect(invoke).not.toHaveBeenCalled();
+    const tab = useClaudeChatStore
+      .getState()
+      .tabs.find((t) => t.id === "tab-default");
+    expect(tab?.error).toBe(
+      "Wait for the version restore to finish before sending.",
+    );
+    expect(tab?.messages).toEqual([]);
   });
 
   it("sends Claude Code when the Claude provider option is selected", async () => {

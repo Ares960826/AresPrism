@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { toast } from "sonner";
 import {
   HistoryIcon,
   LoaderIcon,
@@ -26,6 +27,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { RestoreVersionDialog } from "@/components/workspace/restore-version-dialog";
+import { restoreVersion } from "@/lib/history-restore";
 
 // ─── Helpers ───
 
@@ -76,45 +79,17 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
   const loadMoreSnapshots = useHistoryStore((s) => s.loadMoreSnapshots);
   const loadDiff = useHistoryStore((s) => s.loadDiff);
   const startReview = useHistoryStore((s) => s.startReview);
-  const restoreSnapshot = useHistoryStore((s) => s.restoreSnapshot);
   const addLabel = useHistoryStore((s) => s.addLabel);
   const removeLabel = useHistoryStore((s) => s.removeLabel);
-  const openProject = useDocumentStore((s) => s.openProject);
-
-  // Compute linear history: when a [restore] snapshot appears,
-  // skip all snapshots between it and the restored target
-  const linearSnapshots = useMemo(() => {
-    const result: SnapshotInfo[] = [];
-    let skipUntilSha: string | null = null;
-
-    for (const snap of snapshots) {
-      if (skipUntilSha) {
-        // Skip until we find the snapshot that was restored to
-        if (snap.id.startsWith(skipUntilSha)) {
-          skipUntilSha = null;
-          result.push(snap);
-        }
-        continue;
-      }
-
-      result.push(snap);
-
-      // If this is a restore snapshot, extract the target SHA and start skipping
-      if (snap.message.startsWith("[restore]")) {
-        const match = snap.message.match(/Restored to ([a-f0-9]+)/);
-        if (match) {
-          skipUntilSha = match[1];
-        }
-      }
-    }
-    return result;
-  }, [snapshots]);
 
   const tab = useSettingsStore((s) => s.versionHistoryTab);
   const setTab = useSettingsStore((s) => s.setVersionHistoryTab);
   const [labelDialogOpen, setLabelDialogOpen] = useState(false);
   const [labelTargetId, setLabelTargetId] = useState<string | null>(null);
   const [labelValue, setLabelValue] = useState("");
+  const [labelError, setLabelError] = useState<string | null>(null);
+  const [labelSaving, setLabelSaving] = useState(false);
+  const [restoreTargetId, setRestoreTargetId] = useState<string | null>(null);
 
   // Init history when project opens
   useEffect(() => {
@@ -143,42 +118,58 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
         useHistoryStore.getState().stopReview();
         return;
       }
-      // Find parent snapshot (the one right after in the linear list)
-      const idx = linearSnapshots.findIndex((s) => s.id === snap.id);
-      const parent = linearSnapshots[idx + 1];
-      if (parent) {
-        await loadDiff(projectRoot, parent.id, snap.id);
+      // Every row (including [restore] rows) diffs against its parent
+      // commit. Only the very first version has none; it diffs against an
+      // empty tree (every file shows as added).
+      try {
+        await loadDiff(projectRoot, snap.parent_id, snap.id);
         startReview(snap);
+      } catch (err) {
+        toast.error(`Could not load changes: ${String(err)}`);
       }
     },
-    [projectRoot, linearSnapshots, reviewingSnapshot, loadDiff, startReview],
+    [projectRoot, reviewingSnapshot, loadDiff, startReview],
   );
 
-  const handleRestore = useCallback(
-    async (snapshotId: string) => {
-      if (!projectRoot) return;
-      // Stop any active review
-      useHistoryStore.getState().stopReview();
-      await restoreSnapshot(projectRoot, snapshotId);
-      // Re-open project and reload snapshot list
-      await openProject(projectRoot);
-      await loadSnapshots(projectRoot);
-    },
-    [projectRoot, restoreSnapshot, openProject, loadSnapshots],
-  );
+  const handleConfirmRestore = useCallback(async () => {
+    if (!projectRoot || !restoreTargetId) return;
+    await restoreVersion(projectRoot, restoreTargetId);
+    setRestoreTargetId(null);
+  }, [projectRoot, restoreTargetId]);
 
   const handleAddLabel = useCallback(async () => {
-    if (!labelTargetId || !projectRoot) return;
+    if (!labelTargetId || !projectRoot || labelSaving) return;
     const label = labelValue.trim() || `locked-${labelTargetId.slice(0, 8)}`;
-    await addLabel(projectRoot, labelTargetId, label);
-    setLabelDialogOpen(false);
-    setLabelValue("");
-    setLabelTargetId(null);
-  }, [projectRoot, labelTargetId, labelValue, addLabel]);
+    setLabelSaving(true);
+    setLabelError(null);
+    try {
+      await addLabel(projectRoot, labelTargetId, label);
+      setLabelDialogOpen(false);
+      setLabelValue("");
+      setLabelTargetId(null);
+    } catch (err) {
+      setLabelError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLabelSaving(false);
+    }
+  }, [projectRoot, labelTargetId, labelValue, labelSaving, addLabel]);
+
+  const handleRemoveLabel = useCallback(
+    async (label: string) => {
+      if (!projectRoot) return;
+      try {
+        await removeLabel(projectRoot, label);
+      } catch (err) {
+        toast.error(`Could not remove label: ${String(err)}`);
+      }
+    },
+    [projectRoot, removeLabel],
+  );
 
   const openLabelDialog = useCallback((snapshotId: string) => {
     setLabelTargetId(snapshotId);
     setLabelValue("");
+    setLabelError(null);
     setLabelDialogOpen(true);
   }, []);
 
@@ -233,25 +224,23 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
           className="min-h-0 flex-1 overflow-y-auto"
           onScroll={handleScroll}
         >
-          {linearSnapshots.length === 0 && !isLoading ? (
+          {snapshots.length === 0 && !isLoading ? (
             <div className="px-3 py-4 text-center text-muted-foreground text-xs">
               Versions appear automatically as you edit. Lock important ones to
               keep them.
             </div>
           ) : (
             <div className="py-0.5">
-              {linearSnapshots.map((snap) => (
+              {snapshots.map((snap) => (
                 <SnapshotRow
                   key={snap.id}
                   snapshot={snap}
                   isSelected={reviewingSnapshot?.id === snap.id}
                   isRestoring={isRestoring}
                   onClick={() => handleClick(snap)}
-                  onRestore={() => handleRestore(snap.id)}
+                  onRestore={() => setRestoreTargetId(snap.id)}
                   onAddLabel={() => openLabelDialog(snap.id)}
-                  onRemoveLabel={(label) =>
-                    projectRoot && removeLabel(projectRoot, label)
-                  }
+                  onRemoveLabel={(label) => void handleRemoveLabel(label)}
                 />
               ))}
             </div>
@@ -271,25 +260,43 @@ export function HistoryPanel({ maxHeight }: { maxHeight?: string }) {
           <DialogHeader>
             <DialogTitle>Lock this version</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
+          <div className="space-y-2 py-4">
             <Input
               placeholder="Optional name, e.g. submission draft"
               value={labelValue}
-              onChange={(e) => setLabelValue(e.target.value)}
+              maxLength={80}
+              onChange={(e) => {
+                setLabelValue(e.target.value);
+                setLabelError(null);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleAddLabel();
               }}
               autoFocus
             />
+            {labelError && (
+              <p className="text-destructive text-xs">{labelError}</p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLabelDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddLabel}>Lock</Button>
+            <Button onClick={handleAddLabel} disabled={labelSaving}>
+              Lock
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RestoreVersionDialog
+        open={restoreTargetId !== null}
+        onOpenChange={(open) => {
+          if (!open && !isRestoring) setRestoreTargetId(null);
+        }}
+        onConfirm={() => void handleConfirmRestore()}
+        isRestoring={isRestoring}
+      />
     </div>
   );
 }

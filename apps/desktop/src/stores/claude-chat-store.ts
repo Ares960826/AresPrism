@@ -798,6 +798,14 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
       set((s) => applyTabUpdate(s, activeTabId, { error: "No project open" }));
       return;
     }
+    if (docState.isRestoreInProgress?.()) {
+      set((s) =>
+        applyTabUpdate(s, activeTabId, {
+          error: "Wait for the version restore to finish before sending.",
+        }),
+      );
+      return;
+    }
 
     if (activeTab.projectPath && activeTab.projectPath !== projectPath) {
       get().resetForProject(projectPath);

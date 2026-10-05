@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { useDocumentStore } from "./document-store";
+import { areSavesSuspended, useDocumentStore } from "./document-store";
 import { writeTexFileContent } from "@/lib/tauri/fs";
 import { createLogger } from "@/lib/debug/logger";
 
@@ -73,6 +73,8 @@ export const useProposedChangesStore = create<ProposedChangesState>()(
       const file = useDocumentStore
         .getState()
         .files.find((f) => f.relativePath === change.filePath);
+      if (areSavesSuspended())
+        throw new Error("A version is being restored. Try again in a moment.");
       if (file?.content != null) {
         writeTexFileContent(change.absolutePath, file.content).catch((err) =>
           log.error("Failed to write kept change", { error: String(err) }),
@@ -89,6 +91,8 @@ export const useProposedChangesStore = create<ProposedChangesState>()(
       const change = get().changes.find((c) => c.id === id);
       if (!change) return;
 
+      if (areSavesSuspended())
+        throw new Error("A version is being restored. Try again in a moment.");
       log.info(`Undoing change on ${change.filePath}`);
       // Restore oldContent to disk
       await writeTexFileContent(change.absolutePath, change.oldContent);
@@ -112,6 +116,8 @@ export const useProposedChangesStore = create<ProposedChangesState>()(
 
     undoAll: async () => {
       const { changes } = get();
+      if (areSavesSuspended())
+        throw new Error("A version is being restored. Try again in a moment.");
       log.info(`Undoing all ${changes.length} changes`);
       for (const change of changes) {
         await writeTexFileContent(change.absolutePath, change.oldContent);

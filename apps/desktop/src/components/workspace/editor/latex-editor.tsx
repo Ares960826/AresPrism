@@ -54,6 +54,9 @@ import {
   type PromptContextOverride,
 } from "@/stores/claude-chat-store";
 import { useHistoryStore, type FileDiff } from "@/stores/history-store";
+import { restoreVersion } from "@/lib/history-restore";
+import { RestoreVersionDialog } from "@/components/workspace/restore-version-dialog";
+import { toast } from "sonner";
 import { requestCompile, resolveCompileTarget } from "@/lib/latex-compiler";
 import { saveAndCompile } from "@/lib/preview-compile";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -92,6 +95,27 @@ import { INSERT_LATEX_EVENT } from "@/lib/zotero-local";
 import { createInlineReference } from "@/lib/chat-references";
 
 const log = createLogger("merge-view");
+
+function reportProposedChangeError(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  log.error("Failed to resolve proposed change", { error: message });
+  toast.error(`Could not apply the AI change: ${message}`);
+}
+
+function keepProposedChange(id: string) {
+  try {
+    useProposedChangesStore.getState().keepChange(id);
+  } catch (err) {
+    reportProposedChangeError(err);
+  }
+}
+
+function undoProposedChange(id: string) {
+  void useProposedChangesStore
+    .getState()
+    .undoChange(id)
+    .catch(reportProposedChangeError);
+}
 
 function getActiveFileContent(): string {
   const state = useDocumentStore.getState();
@@ -207,7 +231,7 @@ export function LatexEditor() {
     setMergeChunkInfo({ total: 0, current: 0 });
     view.dispatch({ effects: mergeCompartmentRef.current.reconfigure([]) });
     setContent(change.newContent);
-    useProposedChangesStore.getState().keepChange(change.id);
+    keepProposedChange(change.id);
     pendingChangeRef.current = null;
     // Auto-navigate to next file with pending changes (only if file exists)
     const remaining = useProposedChangesStore.getState().changes;
@@ -239,7 +263,7 @@ export function LatexEditor() {
       annotations: Transaction.addToHistory.of(false),
     });
     setContent(change.oldContent);
-    useProposedChangesStore.getState().undoChange(change.id);
+    undoProposedChange(change.id);
     pendingChangeRef.current = null;
     // Auto-navigate to next file with pending changes (only if file exists)
     const remaining = useProposedChangesStore.getState().changes;
@@ -281,9 +305,9 @@ export function LatexEditor() {
         view.dispatch({ effects: mergeCompartmentRef.current.reconfigure([]) });
         setContent(finalContent);
         if (finalContent === change.oldContent) {
-          useProposedChangesStore.getState().undoChange(change.id);
+          undoProposedChange(change.id);
         } else {
-          useProposedChangesStore.getState().keepChange(change.id);
+          keepProposedChange(change.id);
         }
         pendingChangeRef.current = null;
         // Auto-navigate to next file with pending changes
@@ -462,9 +486,9 @@ export function LatexEditor() {
                 });
                 setContent(finalContent);
                 if (finalContent === change.oldContent) {
-                  useProposedChangesStore.getState().undoChange(change.id);
+                  undoProposedChange(change.id);
                 } else {
-                  useProposedChangesStore.getState().keepChange(change.id);
+                  keepProposedChange(change.id);
                 }
                 pendingChangeRef.current = null;
                 // Auto-navigate to next file with pending changes
@@ -1266,28 +1290,42 @@ export function LatexEditor() {
   }, [setSelectionRange]);
 
   // History review action handlers
-  const handleHistoryRestore = useCallback(async () => {
-    if (!reviewingSnapshot || !projectRoot) return;
-    useHistoryStore.getState().stopReview();
-    await useHistoryStore
-      .getState()
-      .restoreSnapshot(projectRoot, reviewingSnapshot.id);
-    await useDocumentStore.getState().openProject(projectRoot);
-    await useHistoryStore.getState().loadSnapshots(projectRoot);
-  }, [reviewingSnapshot, projectRoot]);
+  const isHistoryRestoring = useHistoryStore((s) => s.isRestoring);
+  const [historyRestoreTargetId, setHistoryRestoreTargetId] = useState<
+    string | null
+  >(null);
+
+  const handleHistoryConfirmRestore = useCallback(async () => {
+    if (!historyRestoreTargetId || !projectRoot) return;
+    await restoreVersion(projectRoot, historyRestoreTargetId);
+    setHistoryRestoreTargetId(null);
+  }, [historyRestoreTargetId, projectRoot]);
 
   const [historyLabelDialogOpen, setHistoryLabelDialogOpen] = useState(false);
   const [historyLabelValue, setHistoryLabelValue] = useState("");
+  const [historyLabelError, setHistoryLabelError] = useState<string | null>(
+    null,
+  );
+  const [historyLabelSaving, setHistoryLabelSaving] = useState(false);
 
   const handleHistoryAddLabel = useCallback(async () => {
     const label = historyLabelValue.trim();
-    if (!label || !reviewingSnapshot || !projectRoot) return;
-    await useHistoryStore
-      .getState()
-      .addLabel(projectRoot, reviewingSnapshot.id, label);
-    setHistoryLabelDialogOpen(false);
-    setHistoryLabelValue("");
-  }, [reviewingSnapshot, projectRoot, historyLabelValue]);
+    if (!label || !reviewingSnapshot || !projectRoot || historyLabelSaving)
+      return;
+    setHistoryLabelSaving(true);
+    setHistoryLabelError(null);
+    try {
+      await useHistoryStore
+        .getState()
+        .addLabel(projectRoot, reviewingSnapshot.id, label);
+      setHistoryLabelDialogOpen(false);
+      setHistoryLabelValue("");
+    } catch (err) {
+      setHistoryLabelError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHistoryLabelSaving(false);
+    }
+  }, [reviewingSnapshot, projectRoot, historyLabelValue, historyLabelSaving]);
 
   const handleHistoryCopySha = useCallback(() => {
     if (!reviewingSnapshot) return;
@@ -1346,7 +1384,8 @@ export function LatexEditor() {
               variant="ghost"
               size="sm"
               className="h-6 gap-1 px-2 text-xs"
-              onClick={handleHistoryRestore}
+              disabled={isHistoryRestoring}
+              onClick={() => setHistoryRestoreTargetId(reviewingSnapshot.id)}
             >
               <RotateCcwIcon className="size-3" />
               Restore
@@ -1358,6 +1397,7 @@ export function LatexEditor() {
               onClick={() => {
                 setHistoryLabelDialogOpen(true);
                 setHistoryLabelValue("");
+                setHistoryLabelError(null);
               }}
             >
               <TagIcon className="size-3" />
@@ -1622,16 +1662,23 @@ export function LatexEditor() {
           <DialogHeader>
             <DialogTitle>Add Label</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
+          <div className="space-y-2 py-4">
             <Input
               placeholder="e.g. Draft v1"
               value={historyLabelValue}
-              onChange={(e) => setHistoryLabelValue(e.target.value)}
+              maxLength={80}
+              onChange={(e) => {
+                setHistoryLabelValue(e.target.value);
+                setHistoryLabelError(null);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleHistoryAddLabel();
               }}
               autoFocus
             />
+            {historyLabelError && (
+              <p className="text-destructive text-xs">{historyLabelError}</p>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -1642,13 +1689,21 @@ export function LatexEditor() {
             </Button>
             <Button
               onClick={handleHistoryAddLabel}
-              disabled={!historyLabelValue.trim()}
+              disabled={!historyLabelValue.trim() || historyLabelSaving}
             >
               Add
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <RestoreVersionDialog
+        open={historyRestoreTargetId !== null}
+        onOpenChange={(open) => {
+          if (!open && !isHistoryRestoring) setHistoryRestoreTargetId(null);
+        }}
+        onConfirm={() => void handleHistoryConfirmRestore()}
+        isRestoring={isHistoryRestoring}
+      />
     </div>
   );
 }

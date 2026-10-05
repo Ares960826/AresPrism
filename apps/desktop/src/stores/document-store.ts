@@ -1,4 +1,5 @@
 import { mapConcurrent } from "@/lib/map-concurrent";
+import { toast } from "sonner";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -89,6 +90,16 @@ export function clearPdfBytesCache() {
   _currentPdfRootId = null;
 }
 
+export interface OpenProjectOptions {
+  /**
+   * Replace in-memory buffers with what is on disk without saving them first.
+   * Used after a history restore, where saving would overwrite restored files.
+   */
+  discardUnsaved?: boolean;
+  /** Token of the running restore; only its own reload may open a project. */
+  restoreToken?: number;
+}
+
 interface DocumentState {
   projectRoot: string | null;
   files: ProjectFile[];
@@ -116,7 +127,31 @@ interface DocumentState {
   /** Per-root-file: rootFileId → contentGeneration at last successful compile. */
   lastCompiledGenerations: Map<string, number>;
 
-  openProject: (rootPath: string) => Promise<void>;
+  openProject: (
+    rootPath: string,
+    options?: OpenProjectOptions,
+  ) => Promise<void>;
+  /**
+   * Start a history restore: block project reloads/closes and agent sends,
+   * cancel pending autosave/snapshot timers, save all dirty buffers, then
+   * suspend saves so nothing can write stale buffers over the restored files.
+   * Returns the restore token that must be passed to `openProject` (for the
+   * restore's own reload) and `endRestore`. Throws, leaving nothing
+   * suspended, if a file could not be saved or a restore is already running.
+   */
+  prepareForRestore: () => Promise<number>;
+  /** End the restore owning `token`; other tokens are ignored. */
+  endRestore: (token: number) => void;
+  /** True from `prepareForRestore` until the owning `endRestore`. */
+  isRestoreInProgress: () => boolean;
+  /**
+   * Drop every in-memory buffer (files, tabs) without saving, keeping the
+   * project root. Used when the reload after a restore failed: the buffers
+   * no longer match the disk and must never be written back.
+   */
+  discardBuffers: () => void;
+  /** Whether an AI agent is currently streaming (it may edit files). */
+  isAgentRunning: () => boolean;
   renameProject: (newName: string) => Promise<void>;
   closeProject: () => Promise<void>;
   projectEpoch: number;
@@ -422,6 +457,38 @@ let autoSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTO_SNAPSHOT_MS = 30_000;
 // Store reference set after creation to avoid TDZ issues
 let storeRef: typeof useDocumentStore | null = null;
+// History restore state. `activeRestoreToken` is set for the whole restore
+// (blocks reloads, closes and agent sends); `savesSuspended` is set once the
+// buffers are flushed: from then on saves fail and autosave is not scheduled,
+// so stale buffers cannot be written over the restored files. Only
+// `endRestore` with the owning token clears both.
+let activeRestoreToken: number | null = null;
+let restoreTokenCounter = 0;
+let savesSuspended = false;
+
+const RESTORE_BUSY_MESSAGE = "Wait for the version restore to finish.";
+const SAVE_SUSPENDED_MESSAGE =
+  "A version is being restored; changes cannot be saved right now.";
+
+/** True while a history restore has suspended writes to project files. */
+export function areSavesSuspended(): boolean {
+  return savesSuspended;
+}
+
+/** Refuse an operation that must not run during a restore. */
+function refuseDuringRestore(allowedToken?: number) {
+  if (activeRestoreToken === null || allowedToken === activeRestoreToken)
+    return;
+  toast.error(RESTORE_BUSY_MESSAGE);
+  throw new Error(RESTORE_BUSY_MESSAGE);
+}
+
+function streamingAgentTabs(): { id: string }[] {
+  const chatState = useClaudeChatStore.getState();
+  return "tabs" in chatState && Array.isArray(chatState.tabs)
+    ? chatState.tabs.filter((tab) => tab.isStreaming)
+    : [];
+}
 
 function clearAutoTimers() {
   if (autoSaveTimer) {
@@ -435,6 +502,10 @@ function clearAutoTimers() {
 }
 
 function scheduleAutoSave() {
+  if (savesSuspended) {
+    clearAutoTimers();
+    return;
+  }
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(async () => {
     const store = storeRef;
@@ -500,9 +571,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   compileErrorCache: new Map(),
   lastCompiledGenerations: new Map(),
 
-  openProject: async (rootPath: string) => {
+  openProject: async (rootPath: string, options?: OpenProjectOptions) => {
+    refuseDuringRestore(options?.restoreToken);
     log.info(`Opening project: ${rootPath}`);
-    if (get().files.some((file) => file.isDirty)) await get().saveAllFiles();
+    const discardUnsaved = options?.discardUnsaved === true;
+    if (discardUnsaved) clearAutoTimers();
+    else if (get().files.some((file) => file.isDirty))
+      await get().saveAllFiles();
     const epoch = get().projectEpoch + 1;
     set({ projectEpoch: epoch });
     await invoke("allow_project_directory", { rootPath });
@@ -586,7 +661,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
             : [];
 
     if (get().projectEpoch !== epoch) return;
-    await get().saveAllFiles();
+    if (!discardUnsaved) await get().saveAllFiles();
     if (get().projectEpoch !== epoch) return;
     clearScrollPositionCache();
     clearZoomCache();
@@ -623,6 +698,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   renameProject: async (newName: string) => {
+    refuseDuringRestore();
     const state = get();
     if (!state.projectRoot) throw new Error("No project open");
 
@@ -633,11 +709,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     clearAutoTimers();
     await waitForCompileToFinish(get);
 
-    const chatState = useClaudeChatStore.getState();
-    const streamingTabs =
-      "tabs" in chatState && Array.isArray(chatState.tabs)
-        ? chatState.tabs.filter((tab) => tab.isStreaming)
-        : [];
+    const streamingTabs = streamingAgentTabs();
     if (streamingTabs.length > 0) {
       await Promise.all(
         streamingTabs.map((tab) =>
@@ -690,6 +762,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   closeProject: async () => {
+    refuseDuringRestore();
     const epoch = get().projectEpoch;
     await get().saveAllFiles();
     if (get().projectEpoch !== epoch) return;
@@ -875,6 +948,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   deleteFile: async (id) => {
+    refuseDuringRestore();
     const state = get();
     if (state.files.length <= 1) return;
     const file = state.files.find((f) => f.id === id);
@@ -922,6 +996,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   deleteFolder: async (folderPath) => {
+    refuseDuringRestore();
     const state = get();
     if (!state.projectRoot) return;
     const prefix = `${folderPath}/`;
@@ -984,6 +1059,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   renameFile: async (id, name) => {
+    refuseDuringRestore();
     const state = get();
     const file = state.files.find((f) => f.id === id);
     if (!file || !state.projectRoot) return;
@@ -1219,6 +1295,10 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     const { projectEpoch: epoch, files } = get();
     const original = files.find((f) => f.id === id);
     if (!original || !original.isDirty || original.content == null) return;
+    if (savesSuspended) {
+      set({ saveError: SAVE_SUSPENDED_MESSAGE });
+      throw new Error(SAVE_SUSPENDED_MESSAGE);
+    }
     const path = original.absolutePath;
     const previous = pendingWrites.get(path) ?? Promise.resolve();
     const task = previous
@@ -1254,7 +1334,67 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     }
   },
 
+  prepareForRestore: async () => {
+    if (activeRestoreToken !== null) throw new Error(RESTORE_BUSY_MESSAGE);
+    const token = ++restoreTokenCounter;
+    activeRestoreToken = token;
+    try {
+      // A keystroke can land while a save is in flight; retry a few times.
+      // The final dirty check and the suspension happen synchronously.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        clearAutoTimers();
+        await get().saveAllFiles();
+        await Promise.allSettled([...pendingWrites.values()]);
+        const dirty = get().files.filter((f) => f.isDirty && f.content != null);
+        if (dirty.length === 0) {
+          savesSuspended = true;
+          clearAutoTimers();
+          return token;
+        }
+      }
+      throw new Error("Pause typing while the version is being restored.");
+    } catch (error) {
+      get().endRestore(token);
+      throw error;
+    }
+  },
+
+  endRestore: (token) => {
+    if (token !== activeRestoreToken) return;
+    activeRestoreToken = null;
+    savesSuspended = false;
+    if (get().saveError === SAVE_SUSPENDED_MESSAGE) set({ saveError: null });
+  },
+
+  isRestoreInProgress: () => activeRestoreToken !== null,
+
+  discardBuffers: () => {
+    clearAutoTimers();
+    clearScrollPositionCache();
+    clearZoomCache();
+    clearEditorStateCache();
+    set((s) => ({
+      // Invalidates in-flight saves started for the old buffers.
+      projectEpoch: s.projectEpoch + 1,
+      files: [],
+      folders: [],
+      openFileIds: [],
+      activeFileId: "",
+      cursorPosition: 0,
+      selectionRange: null,
+      saveError: null,
+    }));
+  },
+
+  isAgentRunning: () => streamingAgentTabs().length > 0,
+
   saveAllFiles: async () => {
+    // Never report success while writes are suspended: close/quit paths
+    // rely on this to keep the window open.
+    if (savesSuspended) {
+      set({ saveError: SAVE_SUSPENDED_MESSAGE });
+      throw new Error(SAVE_SUSPENDED_MESSAGE);
+    }
     const epoch = get().projectEpoch;
     while (get().projectEpoch === epoch) {
       const dirty = get().files.filter((f) => f.isDirty && f.content != null);
@@ -1289,6 +1429,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   createNewFile: async (name, type, folder) => {
+    refuseDuringRestore();
     const state = get();
     if (!state.projectRoot) return;
 
@@ -1322,6 +1463,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   createFolder: async (name, parentFolder) => {
+    refuseDuringRestore();
     const state = get();
     if (!state.projectRoot) return;
 
@@ -1408,6 +1550,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   moveFolder: async (folderPath, targetFolder) => {
+    refuseDuringRestore();
     const state = get();
     if (!state.projectRoot) return;
 

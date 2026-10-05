@@ -8,6 +8,8 @@ const log = createLogger("history");
 
 export interface SnapshotInfo {
   id: string;
+  /** First parent; null only for the very first version. */
+  parent_id: string | null;
   message: string;
   timestamp: number;
   labels: string[];
@@ -19,6 +21,16 @@ export interface FileDiff {
   status: "added" | "modified" | "deleted";
   old_content: string | null;
   new_content: string | null;
+}
+
+export interface RestoreResult {
+  /**
+   * The `[restore]` snapshot holding the restored files; null when the
+   * project was already at that version (nothing changed).
+   */
+  snapshot: SnapshotInfo | null;
+  /** The version right before the restore; restoring it undoes the restore. */
+  previous_id: string;
 }
 
 interface HistoryState {
@@ -38,9 +50,10 @@ interface HistoryState {
   loadSnapshots: (projectRoot: string) => Promise<void>;
   loadMoreSnapshots: (projectRoot: string) => Promise<void>;
   selectSnapshot: (id: string | null) => void;
+  /** `fromId = null` diffs against an empty tree (every file added). */
   loadDiff: (
     projectRoot: string,
-    fromId: string,
+    fromId: string | null,
     toId: string,
   ) => Promise<void>;
   getFileAt: (
@@ -48,10 +61,14 @@ interface HistoryState {
     snapshotId: string,
     filePath: string,
   ) => Promise<string>;
+  /**
+   * Low-level restore IPC. UI code should go through `restoreVersion` in
+   * `lib/history-restore.ts`, which saves buffers first and reloads after.
+   */
   restoreSnapshot: (
     projectRoot: string,
     snapshotId: string,
-  ) => Promise<SnapshotInfo>;
+  ) => Promise<RestoreResult>;
   addLabel: (
     projectRoot: string,
     snapshotId: string,
@@ -64,6 +81,20 @@ interface HistoryState {
 }
 
 const PAGE_SIZE = 50;
+
+// Bumped whenever the first page is reloaded. Snapshot ids can change when the
+// backend prunes (it rewrites the linear history), so a page loaded against an
+// older list must be dropped instead of appended.
+let listGeneration = 0;
+
+function dedupeById(list: SnapshotInfo[]): SnapshotInfo[] {
+  const seen = new Set<string>();
+  return list.filter((snap) => {
+    if (seen.has(snap.id)) return false;
+    seen.add(snap.id);
+    return true;
+  });
+}
 
 export const useHistoryStore = create<HistoryState>()((set, get) => ({
   snapshots: [],
@@ -95,12 +126,18 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
     });
     if (result) {
       log.info(`Snapshot created: ${result.id.slice(0, 8)}`);
-      set((s) => ({ snapshots: [result, ...s.snapshots] }));
+      // Reload instead of prepending: pruning may have rewritten every id.
+      await get()
+        .loadSnapshots(projectRoot)
+        .catch((err) => {
+          log.warn("Failed to reload snapshots", { error: String(err) });
+        });
     }
     return result;
   },
 
   loadSnapshots: async (projectRoot) => {
+    const generation = ++listGeneration;
     set({ isLoading: true });
     try {
       const snapshots = await invoke<SnapshotInfo[]>("history_list", {
@@ -108,15 +145,17 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
         limit: PAGE_SIZE,
         offset: 0,
       });
-      set({ snapshots });
+      if (generation === listGeneration)
+        set({ snapshots: dedupeById(snapshots) });
     } finally {
-      set({ isLoading: false });
+      if (generation === listGeneration) set({ isLoading: false });
     }
   },
 
   loadMoreSnapshots: async (projectRoot) => {
     const { snapshots, isLoading } = get();
     if (isLoading) return;
+    const generation = listGeneration;
     set({ isLoading: true });
     try {
       const more = await invoke<SnapshotInfo[]>("history_list", {
@@ -124,11 +163,12 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
         limit: PAGE_SIZE,
         offset: snapshots.length,
       });
+      if (generation !== listGeneration) return;
       if (more.length > 0) {
-        set((s) => ({ snapshots: [...s.snapshots, ...more] }));
+        set((s) => ({ snapshots: dedupeById([...s.snapshots, ...more]) }));
       }
     } finally {
-      set({ isLoading: false });
+      if (generation === listGeneration) set({ isLoading: false });
     }
   },
 
@@ -160,42 +200,48 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
 
   restoreSnapshot: async (projectRoot, snapshotId) => {
     log.info(`Restoring snapshot: ${snapshotId.slice(0, 8)}`);
-    set({ isRestoring: true });
-    try {
-      const result = await invoke<SnapshotInfo>("history_restore", {
-        projectRoot,
-        snapshotId,
+    const result = await invoke<RestoreResult>("history_restore", {
+      projectRoot,
+      snapshotId,
+    });
+    log.info(
+      result.snapshot
+        ? `Restored snapshot, new snapshot: ${result.snapshot.id.slice(0, 8)}`
+        : "Already at this version",
+    );
+    await get()
+      .loadSnapshots(projectRoot)
+      .catch((err) => {
+        log.warn("Failed to reload snapshots", { error: String(err) });
       });
-      log.info(`Restored snapshot, new snapshot: ${result.id.slice(0, 8)}`);
-      set((s) => ({ snapshots: [result, ...s.snapshots] }));
-      return result;
-    } finally {
-      set({ isRestoring: false });
-    }
+    return result;
   },
 
   addLabel: async (projectRoot, snapshotId, label) => {
-    await invoke("history_add_label", { projectRoot, snapshotId, label });
-    set((s) => ({
-      snapshots: s.snapshots.map((snap) =>
-        snap.id === snapshotId
-          ? { ...snap, labels: [...snap.labels, label] }
-          : snap,
-      ),
-    }));
+    await invoke<string>("history_add_label", {
+      projectRoot,
+      snapshotId,
+      label,
+    });
+    // The label exists now; a failed reload must not report it as failed.
+    await get()
+      .loadSnapshots(projectRoot)
+      .catch((err) => {
+        log.warn("Failed to reload snapshots", { error: String(err) });
+      });
   },
 
   removeLabel: async (projectRoot, label) => {
     await invoke("history_remove_label", { projectRoot, label });
-    set((s) => ({
-      snapshots: s.snapshots.map((snap) => ({
-        ...snap,
-        labels: snap.labels.filter((l) => l !== label),
-      })),
-    }));
+    await get()
+      .loadSnapshots(projectRoot)
+      .catch((err) => {
+        log.warn("Failed to reload snapshots", { error: String(err) });
+      });
   },
 
-  reset: () =>
+  reset: () => {
+    listGeneration++;
     set({
       snapshots: [],
       isLoading: false,
@@ -204,5 +250,6 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
       isDiffLoading: false,
       isRestoring: false,
       reviewingSnapshot: null,
-    }),
+    });
+  },
 }));
