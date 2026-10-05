@@ -138,7 +138,7 @@ describe("useClaudeChatStore.sendPrompt context assembly", () => {
     expect(userText).toBe("@main.tex\nPlease revise this");
   });
 
-  it("uses a line-range label and only the selected slice for selection context", async () => {
+  it("does not attach a leftover editor selection the user did not add", async () => {
     const state = setMockDocumentState({
       files: [
         {
@@ -156,26 +156,15 @@ describe("useClaudeChatStore.sendPrompt context assembly", () => {
 
     await useClaudeChatStore.getState().sendPrompt("Please revise this");
 
-    expect(invoke).toHaveBeenCalledWith(
-      "execute_claude_code",
-      expect.objectContaining({
-        projectPath: "/project",
-        tabId: "tab-default",
-        prompt: expect.stringContaining("[Selection: @main.tex:2:1-3:6]"),
-      }),
-    );
-
     const prompt = (vi.mocked(invoke).mock.calls[0]?.[1] as any)
       ?.prompt as string;
     expect(prompt).toContain("[Currently open file: main.tex]");
-    expect(prompt).toContain("[Selection: @main.tex:2:1-3:6]");
-    expect(prompt).toContain("[Selected text:\nbeta\ngamma\n]");
-    expect(prompt).not.toContain("alpha\na");
-    expect(prompt).not.toContain("\ndelta");
+    expect(prompt).not.toContain("[Selection:");
+    expect(prompt).not.toContain("beta\ngamma");
 
     const userText =
       useClaudeChatStore.getState().messages[0].message?.content?.[0].text;
-    expect(userText).toBe("@main.tex:2:1-3:6\nPlease revise this");
+    expect(userText).toBe("Please revise this");
     expect(state.saveAllFiles).not.toHaveBeenCalled();
     expect(createSnapshotMock).toHaveBeenCalledWith(
       "/project",

@@ -298,10 +298,7 @@ function LayoutPaneSwitcher({
     <Button
       variant="ghost"
       size="icon"
-      className={cn(
-        "transition-transform duration-300 ease-in-out hover:scale-105",
-        buttonClassName,
-      )}
+      className={cn(buttonClassName)}
       onClick={onQuickToggleSidebar}
       title="Layout"
       aria-label="Layout"
@@ -1170,7 +1167,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 transition-transform duration-300 ease-in-out hover:scale-105"
+          className="size-7"
           onClick={onToggleCollapsed}
           title="Files"
           aria-label="Expand Files"
@@ -1180,7 +1177,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 transition-transform duration-300 ease-in-out hover:scale-105"
+          className="size-7"
           onClick={onToggleCollapsed}
           title="Outline"
           aria-label="Expand Outline"
@@ -1190,7 +1187,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 transition-transform duration-300 ease-in-out hover:scale-105"
+          className="size-7"
           onClick={onToggleCollapsed}
           title="Zotero"
           aria-label="Expand Zotero"
@@ -1200,7 +1197,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 transition-transform duration-300 ease-in-out hover:scale-105"
+          className="size-7"
           onClick={onToggleCollapsed}
           title="Environment"
           aria-label="Expand Environment"
@@ -1222,7 +1219,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 transition-transform duration-300 ease-in-out hover:scale-105"
+          className="size-7"
           onClick={() =>
             void closeProject()
               .then(() => useWorkspaceStore.getState().closeWorkspace())
@@ -1266,7 +1263,7 @@ export function Sidebar({
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-6 transition-all duration-150 ease-out hover:scale-105"
+                className="size-6"
                 onClick={() =>
                   void closeProject()
                     .then(() => useWorkspaceStore.getState().closeWorkspace())

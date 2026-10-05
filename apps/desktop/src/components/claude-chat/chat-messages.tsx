@@ -409,8 +409,8 @@ const PendingGuidanceMessage: FC<{ guidance: QueuedGuidance }> = ({
 }) => {
   const contextLabel = guidance.contextOverride?.label ?? null;
   const copyText = contextLabel
-    ? `${contextLabel}\n${guidance.prompt}`
-    : guidance.prompt;
+    ? `${contextLabel}\n${guidance.displayText ?? guidance.prompt}`
+    : (guidance.displayText ?? guidance.prompt);
 
   return (
     <div className="fade-in slide-in-from-bottom-1 grid w-full animate-in auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 py-3 duration-150 [&:where(>*)]:col-start-2">
@@ -425,7 +425,7 @@ const PendingGuidanceMessage: FC<{ guidance: QueuedGuidance }> = ({
           <div className="flex min-w-0 items-start gap-2">
             <CornerDownRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/70" />
             <MarkdownRenderer
-              content={guidance.prompt}
+              content={guidance.displayText ?? guidance.prompt}
               className="prose prose-sm dark:prose-invert min-w-0 max-w-none flex-1 break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
             />
           </div>

@@ -5,6 +5,32 @@ import { APP_VISIBILITY_RESTORED } from "@/lib/debug/log-store";
 import type { StructuredTextData, LinkData } from "@/lib/mupdf/types";
 
 const log = createLogger("mupdf-page");
+
+let measureContext: CanvasRenderingContext2D | null | undefined;
+const widthCache = new Map<string, number>();
+
+/** Width of `text` at 1px font size, scaled; used to stretch each line's
+ *  transparent text to the width it occupies on the rendered page. */
+function measureTextWidth(text: string, fontPx: number, family: string) {
+  const key = `${family}\u0000${text}`;
+  let unit = widthCache.get(key);
+  if (unit === undefined) {
+    if (measureContext === undefined)
+      measureContext = document.createElement("canvas").getContext("2d");
+    if (!measureContext) return 0;
+    measureContext.font = `100px ${family}`;
+    unit = measureContext.measureText(text).width / 100;
+    if (widthCache.size > 5000) widthCache.clear();
+    widthCache.set(key, unit);
+  }
+  return unit * fontPx;
+}
+
+function cssFontFamily(family: string) {
+  if (/mono/i.test(family)) return "monospace";
+  if (/sans/i.test(family)) return "sans-serif";
+  return "serif";
+}
 const RENDER_SCALE_DEBOUNCE_MS = 260;
 
 interface MupdfPageProps {
@@ -190,32 +216,42 @@ export const MupdfPage = memo(function MupdfPage({
         style={{ width: cssW, height: cssH, display: "block" }}
       />
 
-      {/* Text layer for selection */}
+      {/* Text layer: transparent HTML text over the canvas, so the native
+          selection (drag, double-click, Cmd+C) behaves like a PDF reader. */}
       {textData && (
-        <svg
-          className="mupdf-text-layer"
-          viewBox={`0 0 ${pageWidth} ${pageHeight}`}
-          preserveAspectRatio="none"
-          style={{ width: cssW, height: cssH }}
-        >
+        <div className="mupdf-text-layer" style={{ width: cssW, height: cssH }}>
           {textData.blocks.map(
             (block, bi) =>
               block.type === "text" &&
-              block.lines.map((line, li) => (
-                <text
-                  key={`${bi}-${li}`}
-                  x={line.bbox.x}
-                  y={line.y}
-                  fontSize={line.font.size}
-                  fontFamily={line.font.family || line.font.name || "serif"}
-                  textLength={line.bbox.w > 0 ? line.bbox.w : undefined}
-                  lengthAdjust="spacingAndGlyphs"
-                >
-                  {line.text}
-                </text>
-              )),
+              block.lines.map((line, li) => {
+                if (!line.text || line.bbox.w <= 0 || line.bbox.h <= 0)
+                  return null;
+                const fontPx = Math.max(1, line.font.size * scale);
+                const family = cssFontFamily(line.font.family);
+                const natural = measureTextWidth(line.text, fontPx, family);
+                const scaleX =
+                  natural > 0 ? (line.bbox.w * scale) / natural : 1;
+                const isLast = li === block.lines.length - 1;
+                return (
+                  <span
+                    key={`${bi}-${li}`}
+                    style={{
+                      left: line.bbox.x * scale,
+                      top: line.bbox.y * scale,
+                      height: line.bbox.h * scale,
+                      lineHeight: `${line.bbox.h * scale}px`,
+                      fontSize: fontPx,
+                      fontFamily: family,
+                      transform: `scaleX(${scaleX})`,
+                    }}
+                  >
+                    {line.text}
+                    {isLast ? "\n" : " "}
+                  </span>
+                );
+              }),
           )}
-        </svg>
+        </div>
       )}
 
       {/* Link layer */}

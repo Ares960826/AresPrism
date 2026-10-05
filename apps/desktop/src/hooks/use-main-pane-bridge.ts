@@ -60,6 +60,7 @@ function pickChatSnapshot(state = useClaudeChatStore.getState()) {
     selectedProviderModels: state.selectedProviderModels,
     effortLevel: state.effortLevel,
     pendingAttachments: state.pendingAttachments,
+    pendingInlineReferences: state.pendingInlineReferences,
     pendingPinnedContextRemovalLabels: state.pendingPinnedContextRemovalLabels,
   };
 }
@@ -221,6 +222,13 @@ export function useMainPaneBridge() {
     if (parseDetachedPane() || chatMode !== "floating") return;
     let previous = pickChatSnapshot();
     void emitTo(paneWindowLabel("chat"), PANE_EVENTS.chatState, previous);
+    // Quotes are consumed by the floating composer; drop the main-window copy
+    // so they are not inserted a second time when chat is docked again.
+    const handOffQuotes = () => {
+      if (useClaudeChatStore.getState().pendingInlineReferences.length > 0)
+        useClaudeChatStore.getState().consumePendingInlineReferences();
+    };
+    handOffQuotes();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unsub = useClaudeChatStore.subscribe((state, prev) => {
       const next = pickChatSnapshot(state);
@@ -238,6 +246,7 @@ export function useMainPaneBridge() {
         );
         previous = latest;
         void emitTo(paneWindowLabel("chat"), PANE_EVENTS.chatState, delta);
+        handOffQuotes();
       }, 32);
     });
     return () => {

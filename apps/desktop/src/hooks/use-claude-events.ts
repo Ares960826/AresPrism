@@ -419,6 +419,7 @@ export function useClaudeEvents() {
             .sendPrompt(queuedGuidance.prompt, queuedGuidance.contextOverride, {
               tabId,
               preserveTabProvider: true,
+              displayText: queuedGuidance.displayText,
             });
           return;
         }
@@ -472,6 +473,7 @@ export function useClaudeEvents() {
           .sendPrompt(queuedGuidance.prompt, queuedGuidance.contextOverride, {
             tabId,
             preserveTabProvider: true,
+            displayText: queuedGuidance.displayText,
           });
         return;
       }

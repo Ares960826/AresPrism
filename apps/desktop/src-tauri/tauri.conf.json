@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicegui-unofficial/nicegui-tauri-template/main/src-tauri/tauri.conf-v2-schema.json",
   "identifier": "dev.ares.prism",
   "productName": "AresPrism",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build",
@@ -24,6 +24,7 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "zoomHotkeysEnabled": true,
+        "acceptFirstMouse": true,
         "trafficLightPosition": {
           "x": 12,
           "y": 18

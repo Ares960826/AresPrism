@@ -40,7 +40,6 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   CLAUDE_CODE_PROVIDER_ID,
   loadSelectedProviderCredentialId,
-  offsetToLineCol,
   type PromptContextOverride,
   type QueuedGuidance,
   useClaudeChatStore,
@@ -92,6 +91,16 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SlashCommandPicker, type SlashCommand } from "./slash-command-picker";
 import { createLogger } from "@/lib/debug/logger";
+import { claudeModelDisplayName } from "@/lib/claude-models";
+import { ClaudeModelList } from "./claude-model-list";
+import {
+  expandInlineReferences,
+  referencesInInput,
+  splitByReferenceTokens,
+  tokenInsertion,
+  tokenRangeForDeletion,
+  type InlineReference,
+} from "@/lib/chat-references";
 
 const log = createLogger("chat-composer");
 const EMPTY_GUIDANCE: QueuedGuidance[] = [];
@@ -198,8 +207,8 @@ function getFileIcon(file: ProjectFile) {
 
 function formatGuidanceText(guidance: QueuedGuidance) {
   return guidance.contextOverride?.label
-    ? `${guidance.contextOverride.label} - ${guidance.prompt}`
-    : guidance.prompt;
+    ? `${guidance.contextOverride.label} - ${guidance.displayText ?? guidance.prompt}`
+    : (guidance.displayText ?? guidance.prompt);
 }
 
 function effortShortLabel(level: string) {
@@ -236,21 +245,6 @@ function AgentModelGlyph({ icon }: { icon: AgentModelIcon }) {
       return <LayersIcon className={className} />;
     default:
       return <ZapIcon className={className} />;
-  }
-}
-
-function claudeModelDisplayName(model: string) {
-  switch (model) {
-    case "sonnet":
-      return "Sonnet";
-    case "opus":
-      return "Opus";
-    case "haiku":
-      return "Haiku";
-    case "opusplan":
-      return "OpusPlan";
-    default:
-      return model;
   }
 }
 
@@ -649,10 +643,18 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
 
   // Keep refs to latest input/pinnedContexts so the tab-switch effect can
   // save the draft without depending on these values (which would cause loops).
+  // Editor selections quoted inline ("Add to chat"): token text in the
+  // input, expanded into a fenced block when the message is sent.
+  const [inlineRefs, setInlineRefs] = useState<InlineReference[]>([]);
+  const mirrorRef = useRef<HTMLDivElement>(null);
+  const pendingCaretRef = useRef<number | null>(null);
+
   const inputRef = useRef(input);
   inputRef.current = input;
   const pinnedContextsRef = useRef(pinnedContexts);
   pinnedContextsRef.current = pinnedContexts;
+  const inlineRefsRef = useRef(inlineRefs);
+  inlineRefsRef.current = inlineRefs;
 
   // Save draft to previous tab, restore draft from new tab
   const prevTabIdRef = useRef(activeTabId);
@@ -663,6 +665,10 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
       useClaudeChatStore.getState().saveDraft(prevTabId, {
         input: inputRef.current,
         pinnedContexts: pinnedContextsRef.current,
+        inlineReferences: referencesInInput(
+          inputRef.current,
+          inlineRefsRef.current,
+        ),
       });
     }
     prevTabIdRef.current = activeTabId;
@@ -674,6 +680,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
     const draft = tab?.draft;
     setInput(draft?.input ?? "");
     setPinnedContexts(draft?.pinnedContexts ?? []);
+    setInlineRefs(draft?.inlineReferences ?? []);
     setMentionQuery(null);
     setSlashQuery(null);
     if (textareaRef.current) {
@@ -683,9 +690,6 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const composerRef = useRef<HTMLDivElement>(null);
 
-  // Watch selection changes to auto-pin context
-  const selectionRange = useDocumentStore((s) => s.selectionRange);
-  const activeFileId = useDocumentStore((s) => s.activeFileId);
   const files = useDocumentStore((s) => s.files);
   const importFiles = useDocumentStore((s) => s.importFiles);
   const refreshFiles = useDocumentStore((s) => s.refreshFiles);
@@ -733,38 +737,55 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
     );
   }, [pendingPinnedContextRemovalLabels, consumePendingPinnedContextRemovals]);
 
-  const currentContextLabel = useMemo(() => {
-    if (!selectionRange) return null;
-    const file = files.find((f) => f.id === activeFileId);
-    if (!file?.content) return null;
-    const start = offsetToLineCol(file.content, selectionRange.start);
-    const end = offsetToLineCol(file.content, selectionRange.end);
-    return `@${file.relativePath}:${start.line}:${start.col}-${end.line}:${end.col}`;
-  }, [selectionRange, activeFileId, files]);
-
-  // Auto-pin when a new selection is made
+  // Quote editor selections into the input at the caret as one block.
+  const pendingInlineReferences = useClaudeChatStore(
+    (s) => s.pendingInlineReferences,
+  );
   useEffect(() => {
-    if (!selectionRange || !currentContextLabel) return;
-    const file = files.find((f) => f.id === activeFileId);
-    if (!file?.content) return;
-    // Replace any existing selection-based context (keep file contexts)
-    setPinnedContexts((prev) => {
-      const filtered = prev.filter(
-        (c) => !c.label.includes(":") || c.label.startsWith("@attachments/"),
-      );
-      return [
-        ...filtered,
-        {
-          label: currentContextLabel,
-          filePath: file.relativePath,
-          selectedText: file.content!.slice(
-            selectionRange.start,
-            selectionRange.end,
-          ),
-        },
-      ];
+    if (pendingInlineReferences.length === 0) return;
+    const references = useClaudeChatStore
+      .getState()
+      .consumePendingInlineReferences();
+    if (references.length === 0) return;
+    const textarea = textareaRef.current;
+    const focusedCaret =
+      textarea && document.activeElement === textarea
+        ? textarea.selectionStart
+        : null;
+    // Functional update: on first mount this runs after the tab draft is
+    // restored, so the quote is added to the draft instead of replacing it.
+    setInput((prev) => {
+      let value = prev;
+      let caret = Math.min(focusedCaret ?? prev.length, prev.length);
+      for (const reference of references) {
+        // A relayed snapshot can repeat a quote that is already inserted.
+        if (value.includes(reference.token)) continue;
+        const next = tokenInsertion(value, caret, reference.token);
+        value = next.value;
+        caret = next.caret;
+      }
+      if (value !== prev) pendingCaretRef.current = caret;
+      return value;
     });
-  }, [selectionRange, currentContextLabel, activeFileId, files]);
+    setInlineRefs((prev) => [
+      ...prev.filter(
+        (item) => !references.some((ref) => ref.token === item.token),
+      ),
+      ...references,
+    ]);
+  }, [pendingInlineReferences]);
+
+  // Place the caret after a quote once the new input has been committed.
+  useLayoutEffect(() => {
+    const caret = pendingCaretRef.current;
+    const el = textareaRef.current;
+    if (caret === null || !el) return;
+    pendingCaretRef.current = null;
+    el.focus();
+    el.selectionStart = el.selectionEnd = Math.min(caret, el.value.length);
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [input]);
 
   // Compute @ mention matches
   useEffect(() => {
@@ -1088,6 +1109,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
     const trimmed = input.trim();
     if (!trimmed) return;
     if (!providerSelectionReady) return;
+    const quoted = referencesInInput(trimmed, inlineRefs);
     if (imageCompatibilityError) {
       setChatError(activeTabId, imageCompatibilityError);
       return;
@@ -1105,13 +1127,29 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
       );
       if (matched && matched.scope !== "skill") {
         finalPrompt = matched.content;
-        if (matched.accepts_arguments && args) {
-          finalPrompt = finalPrompt.replace(/\$ARGUMENTS/g, args);
+        const usesArgs =
+          matched.accepts_arguments && /\$ARGUMENTS/.test(finalPrompt);
+        if (usesArgs && args) {
+          finalPrompt = finalPrompt.replace(/\$ARGUMENTS/g, () => args);
+        } else if (args && referencesInInput(args, quoted).length > 0) {
+          // Keep quoted blocks even when the command template has no slot.
+          finalPrompt = `${finalPrompt}\n\n${args}`;
         }
       }
     }
 
+    if (quoted.length > 0) {
+      finalPrompt = expandInlineReferences(finalPrompt, quoted);
+    }
+
     setInput("");
+    setInlineRefs([]);
+    // A sent message must not come back as this tab's draft later.
+    useClaudeChatStore.getState().saveDraft(activeTabId, {
+      input: "",
+      pinnedContexts: [],
+      inlineReferences: [],
+    });
     setMentionQuery(null);
     setSlashQuery(null);
     slashSelectedRef.current = false;
@@ -1130,12 +1168,11 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
       };
     }
 
+    const displayText = quoted.length > 0 ? trimmed : undefined;
     if (isStreaming) {
-      queueGuidance(activeTabId, finalPrompt, contextOverride);
-    } else if (contextOverride) {
-      sendPrompt(finalPrompt, contextOverride);
+      queueGuidance(activeTabId, finalPrompt, contextOverride, displayText);
     } else {
-      sendPrompt(finalPrompt);
+      sendPrompt(finalPrompt, contextOverride, { displayText });
     }
     // Reset textarea height
     if (textareaRef.current) {
@@ -1152,6 +1189,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
     sendPrompt,
     pinnedContexts,
     imageCompatibilityError,
+    inlineRefs,
     providerSelectionReady,
     setChatError,
     slashCommands,
@@ -1165,7 +1203,9 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
       }
 
       removeQueuedGuidance(activeTabId, guidance.id);
-      void sendPrompt(guidance.prompt, guidance.contextOverride);
+      void sendPrompt(guidance.prompt, guidance.contextOverride, {
+        displayText: guidance.displayText,
+      });
     },
     [
       activeTabId,
@@ -1221,6 +1261,30 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
         e.preventDefault();
         handleSend();
       }
+      // A quoted block is deleted as a whole, like a single character.
+      if (
+        (e.key === "Backspace" || e.key === "Delete") &&
+        inlineRefs.length > 0
+      ) {
+        const el = e.currentTarget;
+        if (el.selectionStart === el.selectionEnd) {
+          const range = tokenRangeForDeletion(
+            input,
+            el.selectionStart,
+            inlineRefs,
+            e.key === "Backspace" ? "backward" : "forward",
+          );
+          if (range) {
+            e.preventDefault();
+            const next = input.slice(0, range.from) + input.slice(range.to);
+            setInput(next);
+            requestAnimationFrame(() => {
+              el.selectionStart = el.selectionEnd = range.from;
+            });
+            return;
+          }
+        }
+      }
       // Backspace at start of empty input removes last pinned context
       if (e.key === "Backspace" && pinnedContexts.length > 0 && input === "") {
         e.preventDefault();
@@ -1229,6 +1293,7 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
     },
     [
       handleSend,
+      inlineRefs,
       pinnedContexts,
       input,
       mentionQuery,
@@ -1359,32 +1424,6 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
     };
   }, [modelPickerOpen, cliAgentActive, agentKind]);
 
-  const claudeModelOptions = [
-    {
-      id: "sonnet" as const,
-      name: "Sonnet",
-      desc: "Fast, efficient for most tasks",
-      icon: <ZapIcon className="size-3.5" />,
-    },
-    {
-      id: "opus" as const,
-      name: "Opus",
-      desc: "Most capable, complex reasoning",
-      icon: <SparklesIcon className="size-3.5" />,
-    },
-    {
-      id: "haiku" as const,
-      name: "Haiku",
-      desc: "Fastest, simple tasks",
-      icon: <RabbitIcon className="size-3.5" />,
-    },
-    {
-      id: "opusplan" as const,
-      name: "OpusPlan",
-      desc: "Opus for planning, Sonnet for execution",
-      icon: <LayersIcon className="size-3.5" />,
-    },
-  ];
   const activeProviderModelOptions = selectedProviderCredential
     ? Array.from(
         new Set(
@@ -1713,29 +1752,10 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                       );
                     })
                   ) : claudeProviderActive ? (
-                    claudeModelOptions.map((m) => (
-                      <button
-                        key={m.id}
-                        className={cn(
-                          "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
-                          selectedModel === m.id
-                            ? "bg-accent text-accent-foreground"
-                            : "hover:bg-muted",
-                        )}
-                        onClick={() => setSelectedModel(m.id)}
-                      >
-                        {m.icon}
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium text-xs">{m.name}</div>
-                          <div className="truncate text-muted-foreground text-xs">
-                            {m.desc}
-                          </div>
-                        </div>
-                        {selectedModel === m.id && (
-                          <CheckIcon className="size-3 shrink-0" />
-                        )}
-                      </button>
-                    ))
+                    <ClaudeModelList
+                      selected={selectedModel}
+                      onSelect={setSelectedModel}
+                    />
                   ) : selectedProviderCredential ? (
                     <>
                       {activeProviderModelsLoading && (
@@ -2058,20 +2078,49 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
             Drop files to attach
           </div>
         ) : (
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder={
-              isStreaming
-                ? "Add guidance for the next turn..."
-                : "Ask me anything (/ for commands, @ to mention)"
-            }
-            className="max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none placeholder:text-muted-foreground/80"
-            rows={1}
-          />
+          <div className="relative">
+            {inlineRefs.length > 0 && (
+              // Mirror of the input that paints quoted blocks behind the
+              // matching token text in the transparent textarea above it.
+              <div
+                ref={mirrorRef}
+                aria-hidden
+                className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-2.5 py-1 text-base text-transparent"
+              >
+                {splitByReferenceTokens(input, inlineRefs).map((part, i) =>
+                  part.isToken ? (
+                    <mark
+                      key={i}
+                      className="rounded-[3px] bg-primary/15 text-transparent ring-1 ring-primary/35"
+                    >
+                      {part.text}
+                    </mark>
+                  ) : (
+                    <span key={i}>{part.text}</span>
+                  ),
+                )}
+                {"\u200b"}
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInput}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onScroll={(e) => {
+                if (mirrorRef.current)
+                  mirrorRef.current.scrollTop = e.currentTarget.scrollTop;
+              }}
+              placeholder={
+                isStreaming
+                  ? "Add guidance for the next turn..."
+                  : "Ask me anything (/ for commands, @ to mention, ⌘L to quote a selection)"
+              }
+              className="relative max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none placeholder:text-muted-foreground/80"
+              rows={1}
+            />
+          </div>
         )}
 
         <div className="relative flex items-center justify-between">

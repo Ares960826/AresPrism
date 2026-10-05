@@ -6,6 +6,7 @@ mod project_actions;
 mod agent_port;
 mod anthropic_proxy;
 mod claude;
+mod claude_models;
 mod claude_process;
 mod git_workspace;
 mod history;
@@ -200,6 +201,7 @@ fn create_new_window(app: tauri::AppHandle) -> Result<(), String> {
         .inner_size(1400.0, 900.0)
         .min_inner_size(800.0, 600.0)
         .zoom_hotkeys_enabled(false)
+        .accept_first_mouse(true)
         .visible(false);
 
     #[cfg(target_os = "macos")]
@@ -474,6 +476,7 @@ fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
         .inner_size(560.0, 700.0)
         .min_inner_size(400.0, 400.0)
         .zoom_hotkeys_enabled(false)
+        .accept_first_mouse(true)
         .visible(true)
         .build()
         .map_err(|e| format!("Failed to create debug window: {}", e))?;
@@ -730,6 +733,7 @@ pub fn run() {
             claude::delete_openai_compatible_credential,
             claude::set_active_openai_compatible_credential,
             claude::execute_claude_code,
+            claude_models::list_claude_models,
             claude::continue_claude_code,
             claude::resume_claude_code,
             claude::cancel_claude_execution,

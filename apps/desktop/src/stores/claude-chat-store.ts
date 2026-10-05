@@ -10,6 +10,12 @@ import {
   isLocalCliAgentKey,
 } from "@/lib/agent-kind";
 import { createLogger } from "@/lib/debug/logger";
+import type { InlineReference } from "@/lib/chat-references";
+import {
+  claudeModelArg,
+  loadClaudeModel,
+  persistClaudeModel,
+} from "@/lib/claude-models";
 
 const log = createLogger("claude");
 export const CLAUDE_CODE_PROVIDER_ID = "__claude-code__";
@@ -105,6 +111,7 @@ export interface TabDraft {
     imageDataUrl?: string;
     isTemporary?: boolean;
   }[];
+  inlineReferences?: InlineReference[];
 }
 
 export interface PromptContextOverride {
@@ -120,6 +127,8 @@ export interface QueuedGuidance {
   contextOverride?: PromptContextOverride;
   createdAt: number;
   displayedInChat?: boolean;
+  /** Compact text for the chat history when `prompt` holds expanded quotes. */
+  displayText?: string;
 }
 
 export interface TabState {
@@ -590,13 +599,17 @@ interface ClaudeChatState {
     selectedText: string;
     imageDataUrl?: string;
   }[];
+  /** Editor selections quoted into the chat input ("Add to chat"). */
+  pendingInlineReferences: InlineReference[];
+  addInlineReference: (reference: InlineReference) => void;
+  consumePendingInlineReferences: () => InlineReference[];
   pendingPinnedContextRemovalLabels: string[];
   requestPinnedContextRemoval: (labels: string[]) => void;
   consumePendingPinnedContextRemovals: () => string[];
 
   /** Currently selected model (passed per-prompt to Claude CLI) */
-  selectedModel: "sonnet" | "opus" | "haiku" | "opusplan";
-  setSelectedModel: (model: "sonnet" | "opus" | "haiku" | "opusplan") => void;
+  selectedModel: string;
+  setSelectedModel: (model: string) => void;
   selectedProviderCredentialId: string | null;
   setSelectedProviderCredentialId: (credentialId: string | null) => void;
   selectedProviderModels: Record<string, string>;
@@ -610,12 +623,18 @@ interface ClaudeChatState {
   sendPrompt: (
     userPrompt: string,
     contextOverride?: PromptContextOverride,
-    options?: { tabId?: string; preserveTabProvider?: boolean },
+    options?: {
+      tabId?: string;
+      preserveTabProvider?: boolean;
+      /** Shown in the chat history instead of the expanded prompt. */
+      displayText?: string;
+    },
   ) => Promise<void>;
   queueGuidance: (
     tabId: string,
     prompt: string,
     contextOverride?: PromptContextOverride,
+    displayText?: string,
   ) => void;
   consumeQueuedGuidance: (
     tabId: string,
@@ -671,8 +690,11 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
   activeTabId: DEFAULT_TAB_ID,
   activeProjectPath: null,
 
-  selectedModel: "opus",
-  setSelectedModel: (model) => set({ selectedModel: model }),
+  selectedModel: loadClaudeModel(),
+  setSelectedModel: (model) => {
+    persistClaudeModel(model);
+    set({ selectedModel: model });
+  },
   selectedProviderCredentialId:
     loadSelectedProviderCredentialId() ?? CLAUDE_CODE_PROVIDER_ID,
   setSelectedProviderCredentialId: (credentialId) => {
@@ -709,6 +731,19 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
     return pendingInitialPrompt;
   },
 
+  pendingInlineReferences: [],
+  addInlineReference: (reference) => {
+    set((state) => ({
+      pendingInlineReferences: [...state.pendingInlineReferences, reference],
+    }));
+  },
+  consumePendingInlineReferences: () => {
+    const { pendingInlineReferences } = get();
+    if (pendingInlineReferences.length > 0) {
+      set({ pendingInlineReferences: [] });
+    }
+    return pendingInlineReferences;
+  },
   pendingAttachments: [],
   addPendingAttachment: (attachment) => {
     set((state) => ({
@@ -745,7 +780,12 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
   sendPrompt: async (
     userPrompt: string,
     contextOverride?: PromptContextOverride,
-    options?: { tabId?: string; preserveTabProvider?: boolean },
+    options?: {
+      tabId?: string;
+      preserveTabProvider?: boolean;
+      /** Shown in the chat history instead of the expanded prompt. */
+      displayText?: string;
+    },
   ) => {
     let state = get();
     let activeTabId = options?.tabId ?? state.activeTabId;
@@ -836,28 +876,18 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
       tab: activeTabId,
     });
 
-    // Compute context label for display in chat history
+    // Only context the user attached explicitly travels with the prompt; a
+    // stale editor selection is not silently added.
     const activeFile = docState.files.find(
       (f) => f.id === docState.activeFileId,
     );
-    let contextLabel: string | null = null;
-
-    if (contextOverride) {
-      contextLabel = contextOverride.label;
-    } else if (activeFile) {
-      const selRange = docState.selectionRange;
-      if (selRange && activeFile.content) {
-        const content = activeFile.content;
-        const startLC = offsetToLineCol(content, selRange.start);
-        const endLC = offsetToLineCol(content, selRange.end);
-        contextLabel = `@${activeFile.relativePath}:${startLC.line}:${startLC.col}-${endLC.line}:${endLC.col}`;
-      }
-    }
+    const contextLabel = contextOverride?.label ?? null;
 
     // Add user message to the list for display (with context label visible)
+    const shownPrompt = options?.displayText ?? userPrompt;
     const displayText = contextLabel
-      ? `${contextLabel}\n${userPrompt}`
-      : userPrompt;
+      ? `${contextLabel}\n${shownPrompt}`
+      : shownPrompt;
     const userMessage: ClaudeStreamMessage = {
       type: "user",
       message: {
@@ -931,24 +961,16 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
 
     // Build prompt with full context for Claude
     let prompt = userPrompt;
-    if (activeFile) {
-      const selRange = docState.selectionRange;
-      const selectedText =
-        selRange && activeFile.content
-          ? activeFile.content.slice(selRange.start, selRange.end)
-          : null;
-      let ctx = `[Currently open file: ${activeFile.relativePath}]`;
-      if (contextOverride) {
-        ctx += `\n[Selection: ${contextOverride.label}]`;
-        ctx += `\n[Selected text:\n${contextOverride.selectedText}\n]`;
-      } else if (selectedText && selRange) {
-        const content = activeFile.content ?? "";
-        const startLC = offsetToLineCol(content, selRange.start);
-        const endLC = offsetToLineCol(content, selRange.end);
-        ctx += `\n[Selection: @${activeFile.relativePath}:${startLC.line}:${startLC.col}-${endLC.line}:${endLC.col}]`;
-        ctx += `\n[Selected text:\n${selectedText}\n]`;
+    if (activeFile || contextOverride) {
+      const ctx: string[] = [];
+      if (activeFile) {
+        ctx.push(`[Currently open file: ${activeFile.relativePath}]`);
       }
-      prompt = `${ctx}\n\n${userPrompt}`;
+      if (contextOverride) {
+        ctx.push(`[Selection: ${contextOverride.label}]`);
+        ctx.push(`[Selected text:\n${contextOverride.selectedText}\n]`);
+      }
+      prompt = `${ctx.join("\n")}\n\n${userPrompt}`;
     }
     if (switchingDirectProviderToClaudeCode) {
       const priorContext = buildProviderSwitchContext(
@@ -981,7 +1003,7 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
           sessionId: resumeSessionId,
           prompt,
           tabId: activeTabId,
-          model: selectedModel,
+          model: claudeModelArg(selectedModel),
           effortLevel,
           providerCredentialId,
           providerModelOverride,
@@ -992,7 +1014,7 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
           projectPath,
           prompt,
           tabId: activeTabId,
-          model: selectedModel,
+          model: claudeModelArg(selectedModel),
           effortLevel,
           providerCredentialId,
           providerModelOverride,
@@ -1016,7 +1038,7 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
     }
   },
 
-  queueGuidance: (tabId, prompt, contextOverride) => {
+  queueGuidance: (tabId, prompt, contextOverride, displayText) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
     set((state) => {
@@ -1028,6 +1050,7 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
           id: nextGuidanceId(),
           prompt: trimmed,
           contextOverride,
+          displayText,
           createdAt: Date.now(),
         },
       ];

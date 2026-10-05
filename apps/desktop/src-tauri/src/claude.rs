@@ -673,6 +673,21 @@ fn stored_claude_credential() -> Option<StoredClaudeCredential> {
     stored_claude_credential_from_config(&config)
 }
 
+/// An Anthropic API key that talks to the official API (no custom base URL),
+/// from AresPrism's settings or the environment. Used to list models.
+pub(crate) fn official_anthropic_api_key() -> Option<String> {
+    if let Some(credential) = stored_claude_credential() {
+        return credential.base_url.is_none().then_some(credential.api_key);
+    }
+    let custom_base = std::env::var("ANTHROPIC_BASE_URL")
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    std::env::var("ANTHROPIC_API_KEY")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| value.starts_with("sk-ant-") && !custom_base)
+}
+
 fn stored_claude_credential_from_config(
     config: &ClaudePrismAuthConfig,
 ) -> Option<StoredClaudeCredential> {
@@ -1294,7 +1309,7 @@ fn expand_env_vars(s: &str) -> String {
 /// Discover the claude binary on the system.
 /// Search order: ~/.local/bin 鈫?NVM_BIN 鈫?which 鈫?registry PATH (Windows) 鈫?/// login shell (Unix) 鈫?npm/nvm global 鈫?standard paths 鈫?user-specific paths.
 /// Returns Err if not found.
-fn find_claude_binary() -> Result<String, String> {
+pub(crate) fn find_claude_binary() -> Result<String, String> {
     // 1. Check the native installer's default location first
     //    (GUI apps often don't have ~/.local/bin in PATH)
     if let Some(home) = dirs::home_dir() {
@@ -1860,8 +1875,10 @@ fn create_command(
             cmd.env_remove(&key);
         }
     }
-    // Set effort level (default: low for fast responses)
-    cmd.env("CLAUDE_CODE_EFFORT_LEVEL", effort_level.unwrap_or("low"));
+    // Pass the effort the user picked; otherwise keep Claude Code's own default.
+    if let Some(level) = effort_level.map(str::trim).filter(|l| !l.is_empty()) {
+        cmd.env("CLAUDE_CODE_EFFORT_LEVEL", level);
+    }
 
     if let Some(credential) = stored_claude_credential() {
         for (key, value) in claude_credential_env_values(&credential) {
@@ -2518,6 +2535,12 @@ pub async fn login_claude(window: WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+/// Short factual note about the host app. It deliberately does not dictate
+/// how the agent works (no forced planning tools or edit sizes): those rules
+/// fight the agent's own judgement and the user's CLAUDE.md, and made every
+/// request slower and worse.
+pub(crate) const HOST_CONTEXT_NOTE: &str = "You are running inside AresPrism, a local LaTeX editor; the working directory is the user's project. AresPrism compiles the document and refreshes the PDF preview itself, so do not run a LaTeX build unless the user asks. File edits you make are shown to the user as reviewable diffs.";
+
 /// Common CLI flags shared across all Claude invocations.
 fn common_claude_args() -> Vec<String> {
     vec![
@@ -2526,24 +2549,7 @@ fn common_claude_args() -> Vec<String> {
         "--verbose".to_string(),
         "--dangerously-skip-permissions".to_string(),
         "--append-system-prompt".to_string(),
-        concat!(
-            "You are an AI assistant integrated into a LaTeX document editor (Prism). ",
-            "Follow these rules strictly:\n",
-            "1. PLANNING FIRST: Before making changes, use TodoWrite to create a step-by-step plan. ",
-            "Break large tasks into small, incremental steps (one section or one logical unit per step).\n",
-            "2. INCREMENTAL EDITS: Use the Edit tool to make small, targeted changes 鈥?one step at a time. ",
-            "NEVER write or rewrite an entire file at once. Always prefer editing existing content over replacing it wholesale.\n",
-            "3. STEP BY STEP: After each edit, mark the todo item as completed, then proceed to the next step. ",
-            "This lets the user review changes incrementally.\n",
-            "4. PRESERVE EXISTING CONTENT: Always read the file first. Keep the existing preamble, packages, ",
-            "and structure intact. Only add or modify what is needed for the current step.\n",
-            "5. LaTeX BEST PRACTICES: Use proper sectioning (\\chapter, \\section, \\subsection), ",
-            "citations (\\cite), cross-references (\\label, \\ref), and BibTeX for bibliographies.\n",
-            "6. SKILLS: If scientific skills are installed in .claude/skills/, follow their guidelines ",
-            "for domain-specific tasks. Use skill-provided LaTeX packages (.sty) and code patterns.\n",
-            "7. PYTHON: If a .venv/ exists in the project, it is already activated. ",
-            "Use `uv pip install` to add packages and `python` to run scripts."
-        ).to_string(),
+        HOST_CONTEXT_NOTE.to_string(),
     ]
 }
 
@@ -4525,7 +4531,7 @@ mod tests {
     }
 
     #[test]
-    fn test_common_claude_args_system_prompt_mentions_latex() {
+    fn test_common_claude_args_system_prompt_is_short_context_only() {
         let args = common_claude_args();
         let prompt_idx = args
             .iter()
@@ -4533,6 +4539,10 @@ mod tests {
             .unwrap();
         let prompt = &args[prompt_idx + 1];
         assert!(prompt.contains("LaTeX"));
+        assert!(prompt.is_ascii(), "no mis-encoded characters");
+        assert!(prompt.len() < 400);
+        assert!(!prompt.contains("TodoWrite"));
+        assert!(!prompt.contains("NEVER"));
     }
 
     #[test]

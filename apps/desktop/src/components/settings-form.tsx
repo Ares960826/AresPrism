@@ -281,6 +281,21 @@ export function LatexSettings() {
   const setDefaultEngine = useSettingsStore((s) => s.setDefaultEngine);
   const vimMode = useSettingsStore((s) => s.vimMode);
   const setVimMode = useSettingsStore((s) => s.setVimMode);
+  const editorWrapMode = useSettingsStore((s) => s.editorWrapMode);
+  const setEditorWrapMode = useSettingsStore((s) => s.setEditorWrapMode);
+  const editorRulerColumn = useSettingsStore((s) => s.editorRulerColumn);
+  const setEditorRulerColumn = useSettingsStore((s) => s.setEditorRulerColumn);
+  const rulerInputId = useId();
+  // Edit freely; clamp only on commit so "120" can be typed digit by digit.
+  const [rulerDraft, setRulerDraft] = useState(String(editorRulerColumn));
+  useEffect(
+    () => setRulerDraft(String(editorRulerColumn)),
+    [editorRulerColumn],
+  );
+  const commitRuler = () => {
+    setEditorRulerColumn(Number(rulerDraft));
+    setRulerDraft(String(useSettingsStore.getState().editorRulerColumn));
+  };
   const synctexFollowCursor = useSettingsStore((s) => s.synctexFollowCursor);
   const setSynctexFollowCursor = useSettingsStore(
     (s) => s.setSynctexFollowCursor,
@@ -487,6 +502,41 @@ export function LatexSettings() {
           label="Vim mode"
           onCheckedChange={setVimMode}
         />
+        <Select
+          value={editorWrapMode}
+          onValueChange={(v) => setEditorWrapMode(v as typeof editorWrapMode)}
+        >
+          <SelectTrigger className="h-8 w-full text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="wrap">Wrap long lines to the pane</SelectItem>
+            <SelectItem value="ruler">No wrap, show a column guide</SelectItem>
+          </SelectContent>
+        </Select>
+        {editorWrapMode === "ruler" && (
+          <div className="flex items-center gap-2">
+            <Label
+              htmlFor={rulerInputId}
+              className="text-[0.85rem] text-muted-foreground"
+            >
+              Guide column
+            </Label>
+            <input
+              id={rulerInputId}
+              type="number"
+              min={20}
+              max={400}
+              value={rulerDraft}
+              onChange={(e) => setRulerDraft(e.target.value)}
+              onBlur={commitRuler}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRuler();
+              }}
+              className="h-7 w-20 rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </div>
+        )}
       </Field>
     </div>
   );

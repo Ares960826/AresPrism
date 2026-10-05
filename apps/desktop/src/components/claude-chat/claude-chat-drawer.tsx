@@ -33,6 +33,9 @@ export function ClaudeChatDrawer({
   );
   const error = useClaudeChatStore((s) => s.error);
   const pendingAttachments = useClaudeChatStore((s) => s.pendingAttachments);
+  const pendingInlineReferences = useClaudeChatStore(
+    (s) => s.pendingInlineReferences,
+  );
 
   const chatMode = useLayoutStore((s) => s.chatMode);
   const setChatMode = useLayoutStore((s) => s.setChatMode);
@@ -47,9 +50,18 @@ export function ClaudeChatDrawer({
   heightRef.current = height;
 
   useEffect(() => {
-    const shouldOpen = anyStreaming || pendingAttachments.length > 0;
+    const shouldOpen =
+      anyStreaming ||
+      pendingAttachments.length > 0 ||
+      pendingInlineReferences.length > 0;
     if (shouldOpen && !isOpen) setIsOpen(true);
-  }, [anyStreaming, isOpen, pendingAttachments, setIsOpen]);
+  }, [
+    anyStreaming,
+    isOpen,
+    pendingAttachments,
+    pendingInlineReferences,
+    setIsOpen,
+  ]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -80,19 +92,39 @@ export function ClaudeChatDrawer({
   const docked = chatMode === "docked";
   const detachedChat = parseDetachedPane() === "chat";
 
+  const collapse = () => {
+    setIsOpen(false);
+    if (!docked) setChatMode("docked");
+  };
+
   const panelBody = (
     <>
-      <div
-        className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-row-resize"
-        onMouseDown={handleMouseDown}
-        title="Drag to resize"
-      />
+      {detachedChat ? null : (
+        // Top edge: the first few pixels resize; just below them a hidden
+        // strip appears on hover, and clicking it collapses the chat.
+        <div className="group/chat-edge relative h-3.5 shrink-0">
+          <div
+            className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-row-resize"
+            onMouseDown={handleMouseDown}
+            title="Drag to resize"
+          />
+          <button
+            type="button"
+            className="group/collapse absolute inset-x-0 top-1.5 bottom-0 flex cursor-pointer items-center justify-center outline-none"
+            title="Collapse chat"
+            aria-label="Collapse chat"
+            onClick={collapse}
+          >
+            <span className="h-[3px] w-10 rounded-full bg-muted-foreground/40 opacity-0 transition-[opacity,width,background-color] duration-100 group-hover/collapse:w-20 group-hover/collapse:bg-foreground/70 group-hover/chat-edge:opacity-100 group-focus-visible/collapse:opacity-100 group-active/collapse:bg-foreground" />
+          </button>
+        </div>
+      )}
       <ChatTabBar
         extraActions={
           <>
             <button
               type="button"
-              className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground"
               title={docked ? "Float" : "Dock"}
               onClick={() => setChatMode(docked ? "floating" : "docked")}
             >
@@ -102,17 +134,16 @@ export function ClaudeChatDrawer({
                 <PanelBottomIcon className="size-3.5" />
               )}
             </button>
-            <button
-              type="button"
-              className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title="Close"
-              onClick={() => {
-                setIsOpen(false);
-                if (!docked) setChatMode("docked");
-              }}
-            >
-              <ChevronDownIcon className="size-3.5" />
-            </button>
+            {detachedChat && (
+              <button
+                type="button"
+                className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground"
+                title="Close"
+                onClick={collapse}
+              >
+                <ChevronDownIcon className="size-3.5" />
+              </button>
+            )}
           </>
         }
       />

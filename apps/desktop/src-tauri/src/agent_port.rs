@@ -16,8 +16,6 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-const LATEX_HINT: &str = "You are running inside AresPrism, a local LaTeX IDE. Prefer small, targeted edits to existing .tex files. Avoid combining file deletion with inspection commands; use separate focused tool calls and respect approval rejections. Do not rewrite whole files. Preserve the preamble, packages, and document structure.\n\n";
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AgentKind {
     Claude,
@@ -115,6 +113,16 @@ pub async fn list_agent_models(agent: String) -> Result<Vec<AgentModelInfo>, Str
     Ok(list_models_for(kind))
 }
 
+/// The prompt is passed as a CLI argument; text such as "- fix the table"
+/// must not be parsed as an option.
+fn prompt_safe_as_argument(prompt: String) -> String {
+    if prompt.starts_with('-') {
+        format!("\n{prompt}")
+    } else {
+        prompt
+    }
+}
+
 #[tauri::command]
 pub async fn execute_agent(
     window: WebviewWindow,
@@ -157,11 +165,17 @@ pub async fn execute_agent(
             }
         }
     }
-    let prompt = format!("{LATEX_HINT}{prompt}");
     let resume = session_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    // These CLIs have no system-prompt flag; state the host context once at
+    // the start of a session rather than repeating it on every turn.
+    let prompt = if resume.is_none() {
+        format!("{}\n\n{prompt}", crate::claude::HOST_CONTEXT_NOTE)
+    } else {
+        prompt_safe_as_argument(prompt)
+    };
     let args = build_cli_args(
         kind,
         &project_path,
@@ -1200,6 +1214,12 @@ mod tests {
     fn map_codex_ignores_reconnect_errors() {
         let events = map_codex_line(r#"{"type":"error","message":"Reconnecting... 1/5"}"#);
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn prompt_starting_with_dash_is_not_an_option() {
+        assert_eq!(prompt_safe_as_argument("- fix".into()), "\n- fix");
+        assert_eq!(prompt_safe_as_argument("fix -x".into()), "fix -x");
     }
 
     #[test]

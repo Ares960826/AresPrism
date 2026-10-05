@@ -17,6 +17,10 @@ import {
   BookMarkedIcon,
   ExternalLinkIcon,
   LayersIcon,
+  WrapTextIcon,
+  RulerIcon,
+  PlayIcon,
+  LoaderIcon,
 } from "lucide-react";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
@@ -37,6 +41,9 @@ import {
 import { useDocumentStore } from "@/stores/document-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { compileIndependentRoots } from "@/lib/latex-compiler";
+import { requestPreviewCompile } from "@/lib/preview-compile";
+import { useHistoryStore } from "@/stores/history-store";
+import { cn } from "@/lib/utils";
 import { OverflowToolbar } from "@/components/workspace/overflow-toolbar";
 
 interface EditorInfo {
@@ -96,6 +103,11 @@ export function EditorToolbar({
 }: EditorToolbarProps) {
   const vimMode = useSettingsStore((s) => s.vimMode);
   const setVimMode = useSettingsStore((s) => s.setVimMode);
+  const editorWrapMode = useSettingsStore((s) => s.editorWrapMode);
+  const setEditorWrapMode = useSettingsStore((s) => s.setEditorWrapMode);
+  const editorRulerColumn = useSettingsStore((s) => s.editorRulerColumn);
+  const toggleWrapMode = () =>
+    setEditorWrapMode(editorWrapMode === "wrap" ? "ruler" : "wrap");
 
   const fileName = useDocumentStore((s) => {
     const activeFile = s.files.find((f) => f.id === s.activeFileId);
@@ -106,6 +118,13 @@ export function EditorToolbar({
     return activeFile?.relativePath;
   });
   const projectRoot = useDocumentStore((s) => s.projectRoot);
+  const hasTexFile = useDocumentStore((s) =>
+    s.files.some((file) => file.type === "tex"),
+  );
+  const isCompiling = useDocumentStore((s) => s.isCompiling);
+  const compileError = useDocumentStore((s) => s.compileError);
+  const isMac =
+    typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
 
   const [editors, setEditors] = useState<EditorInfo[]>([]);
 
@@ -157,6 +176,11 @@ export function EditorToolbar({
     insertText(wrapper, wrapper);
   };
 
+  const compileCurrentDocument = () => {
+    useHistoryStore.getState().stopReview();
+    void requestPreviewCompile(true).catch(() => {});
+  };
+
   const compileOpenDocuments = () => {
     const { openFileIds, activeFileId } = useDocumentStore.getState();
     const ids = openFileIds.length > 0 ? openFileIds : [activeFileId];
@@ -169,7 +193,7 @@ export function EditorToolbar({
   if (fileType === "image") {
     return (
       <OverflowToolbar
-        className="h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] border-border border-b bg-muted/30 px-2"
+        className="h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] border-border border-b bg-muted/30 px-2 pt-[var(--titlebar-height)]"
         items={[
           {
             id: "name",
@@ -308,7 +332,7 @@ export function EditorToolbar({
 
   return (
     <OverflowToolbar
-      className="h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] border-border border-b bg-muted/30 px-2"
+      className="h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] border-border border-b bg-muted/30 px-2 pt-[var(--titlebar-height)]"
       items={[
         {
           id: "name",
@@ -453,6 +477,36 @@ export function EditorToolbar({
           ),
         },
         {
+          id: "wrap",
+          label:
+            editorWrapMode === "wrap"
+              ? "Wrap: soft wrap"
+              : `Wrap: guide at column ${editorRulerColumn}`,
+          icon:
+            editorWrapMode === "wrap" ? (
+              <WrapTextIcon className="size-4" />
+            ) : (
+              <RulerIcon className="size-4" />
+            ),
+          onSelect: toggleWrapMode,
+          node: (
+            <TooltipIconButton
+              tooltip={
+                editorWrapMode === "wrap"
+                  ? "Soft wrap (click: no wrap + column guide)"
+                  : `No wrap, guide at column ${editorRulerColumn} (click: soft wrap)`
+              }
+              onClick={toggleWrapMode}
+            >
+              {editorWrapMode === "wrap" ? (
+                <WrapTextIcon className="size-4" />
+              ) : (
+                <RulerIcon className="size-4" />
+              )}
+            </TooltipIconButton>
+          ),
+        },
+        {
           id: "vim",
           label: "Vim mode",
           icon: (
@@ -474,6 +528,22 @@ export function EditorToolbar({
       ]}
       trailing={
         <>
+          <TooltipIconButton
+            tooltip={
+              isCompiling
+                ? "Compiling…"
+                : `${compileError ? "Retry compile" : "Compile"} (${isMac ? "⌘S / ⌘↵" : "Ctrl+S / Ctrl+Enter"})`
+            }
+            onClick={compileCurrentDocument}
+            disabled={!hasTexFile}
+            className={cn(compileError && !isCompiling && "text-destructive")}
+          >
+            {isCompiling ? (
+              <LoaderIcon className="size-4 animate-spin" />
+            ) : (
+              <PlayIcon className="size-4" />
+            )}
+          </TooltipIconButton>
           <TooltipIconButton
             tooltip="Compile open documents in parallel"
             onClick={compileOpenDocuments}

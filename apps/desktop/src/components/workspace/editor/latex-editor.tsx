@@ -55,10 +55,13 @@ import {
 } from "@/stores/claude-chat-store";
 import { useHistoryStore, type FileDiff } from "@/stores/history-store";
 import { requestCompile, resolveCompileTarget } from "@/lib/latex-compiler";
+import { saveAndCompile } from "@/lib/preview-compile";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useSyncTexStore } from "@/stores/synctex-store";
 import { EditorToolbar } from "./editor-toolbar";
 import { EditorTabBar } from "./editor-tab-bar";
+import { latexAutocompletion } from "./latex-completion";
+import { editorWrapExtension } from "./editor-wrap";
 import { SelectionToolbar, type ToolbarAction } from "./selection-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,6 +73,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  MessageSquarePlusIcon,
   SpellCheckIcon,
   RotateCcwIcon,
   TagIcon,
@@ -85,6 +89,7 @@ import { PdfViewer } from "@/components/workspace/preview/pdf-viewer";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { createLogger } from "@/lib/debug/logger";
 import { INSERT_LATEX_EVENT } from "@/lib/zotero-local";
+import { createInlineReference } from "@/lib/chat-references";
 
 const log = createLogger("merge-view");
 
@@ -163,12 +168,16 @@ export function LatexEditor() {
 
   const { resolvedTheme } = useTheme();
   const vimMode = useSettingsStore((s) => s.vimMode);
+  const editorWrapMode = useSettingsStore((s) => s.editorWrapMode);
+  const editorRulerColumn = useSettingsStore((s) => s.editorRulerColumn);
 
   const compileRef = useRef<() => void>(() => {});
+  const addSelectionToChatRef = useRef<() => boolean>(() => false);
   const isSearchOpenRef = useRef(false);
   const themeCompartmentRef = useRef(new Compartment());
   const mergeCompartmentRef = useRef(new Compartment());
   const vimCompartmentRef = useRef(new Compartment());
+  const wrapCompartmentRef = useRef(new Compartment());
   const isMergeActiveRef = useRef(false);
   const pendingChangeRef = useRef<ProposedChange | null>(null);
   const handleKeepAllRef = useRef<() => void>(() => {});
@@ -585,21 +594,19 @@ export function LatexEditor() {
           },
         },
         {
-          key: "Ctrl-s",
+          // Save and compile: Cmd+S on macOS, Ctrl+S everywhere.
+          key: "Mod-s",
           run: () => {
-            compileRef.current();
+            useHistoryStore.getState().stopReview();
+            void saveAndCompile().catch(() => {});
             return true;
           },
         },
         {
-          key: "Mod-s",
+          key: "Ctrl-s",
           run: () => {
-            const state = useDocumentStore.getState();
-            state.setIsSaving(true);
-            state
-              .saveCurrentFile()
-              .catch(() => {})
-              .finally(() => setTimeout(() => state.setIsSaving(false), 500));
+            useHistoryStore.getState().stopReview();
+            void saveAndCompile().catch(() => {});
             return true;
           },
         },
@@ -609,6 +616,11 @@ export function LatexEditor() {
             setIsSearchOpen(true);
             return true;
           },
+        },
+        {
+          // Quote the selection into the AI input (Cursor-style).
+          key: "Mod-l",
+          run: () => addSelectionToChatRef.current(),
         },
         {
           key: "Escape",
@@ -669,7 +681,12 @@ export function LatexEditor() {
           ...defaultKeymap,
           ...historyKeymap,
         ]),
-        activeFile?.type === "bib" ? bibtex() : latex({ enableLinting: false }),
+        activeFile?.type === "bib"
+          ? bibtex()
+          : latex({ enableLinting: false, enableAutocomplete: false }),
+        ...(activeFile?.type === "bib"
+          ? []
+          : [latexAutocompletion(() => useDocumentStore.getState().files)]),
         ...(activeFile?.type === "tex"
           ? [
               linter((view) => {
@@ -750,7 +767,12 @@ export function LatexEditor() {
             return false;
           },
         }),
-        EditorView.lineWrapping,
+        wrapCompartmentRef.current.of(
+          editorWrapExtension(
+            useSettingsStore.getState().editorWrapMode,
+            useSettingsStore.getState().editorRulerColumn,
+          ),
+        ),
         scrollPastEnd(),
         EditorView.theme({
           "&": {
@@ -963,6 +985,14 @@ export function LatexEditor() {
   }, [resolvedTheme]);
 
   useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: wrapCompartmentRef.current.reconfigure(
+        editorWrapExtension(editorWrapMode, editorRulerColumn),
+      ),
+    });
+  }, [editorWrapMode, editorRulerColumn]);
+
+  useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     if (!vimMode) {
@@ -1168,19 +1198,58 @@ export function LatexEditor() {
     [sendToolbarPromptWithSelectionContext],
   );
 
+  const isMacPlatform =
+    typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
+
+  // "Add to chat": quote the exact selected lines as one block at the caret
+  // of the AI input, instead of attaching it silently to the next prompt.
+  addSelectionToChatRef.current = () => {
+    const view = viewRef.current;
+    const file = activeFile;
+    if (!view || !file || isMergeActiveRef.current) return false;
+    const { from, to } = view.state.selection.main;
+    if (from === to) return false;
+    const startLine = view.state.doc.lineAt(from).number;
+    const endLine = view.state.doc.lineAt(to === from ? to : to - 1).number;
+    useClaudeChatStore
+      .getState()
+      .addInlineReference(
+        createInlineReference(
+          file.relativePath,
+          startLine,
+          Math.max(startLine, endLine),
+          view.state.sliceDoc(from, to),
+        ),
+      );
+    toolbarStickyRef.current = false;
+    setSelectionCoords(null);
+    setSelectionRange(null);
+    return true;
+  };
+
   const editorToolbarActions: ToolbarAction[] = useMemo(
     () => [
+      {
+        id: "add-to-chat",
+        label: "Add to chat",
+        icon: <MessageSquarePlusIcon className="size-4" />,
+        hint: isMacPlatform ? "⌘L" : "Ctrl+L",
+      },
       {
         id: "proofread",
         label: "Proofread",
         icon: <SpellCheckIcon className="size-4" />,
       },
     ],
-    [],
+    [isMacPlatform],
   );
 
   const handleToolbarAction = useCallback(
     (actionId: string) => {
+      if (actionId === "add-to-chat") {
+        addSelectionToChatRef.current();
+        return;
+      }
       if (actionId === "proofread") {
         sendToolbarPromptWithSelectionContext(
           "Proofread and fix any errors in this text",

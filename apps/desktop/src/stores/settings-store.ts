@@ -13,6 +13,9 @@ export type { AgentKind };
 export type CompilerBackend = "tectonic" | "texlive" | "latexmk";
 export type TexEnginePref = "auto" | "pdflatex" | "xelatex" | "lualatex";
 export type VersionHistoryTab = "jj" | "git";
+/** "wrap": soft-wrap at the pane edge. "ruler": one line per source line,
+ *  horizontal scroll, with a guide at `editorRulerColumn`. */
+export type EditorWrapMode = "wrap" | "ruler";
 
 interface SettingsState {
   compilerBackend: CompilerBackend;
@@ -21,6 +24,10 @@ interface SettingsState {
   setDefaultEngine: (engine: TexEnginePref) => void;
   vimMode: boolean;
   setVimMode: (enabled: boolean) => void;
+  editorWrapMode: EditorWrapMode;
+  setEditorWrapMode: (mode: EditorWrapMode) => void;
+  editorRulerColumn: number;
+  setEditorRulerColumn: (column: number) => void;
   uiFont: UiFontId;
   setUiFont: (font: UiFontId) => void;
   editorFont: EditorFontId;
@@ -59,6 +66,16 @@ export const useSettingsStore = create<SettingsState>()(
       setDefaultEngine: (engine) => set({ defaultEngine: engine }),
       vimMode: false,
       setVimMode: (enabled) => set({ vimMode: enabled }),
+      editorWrapMode: "wrap",
+      setEditorWrapMode: (mode) => set({ editorWrapMode: mode }),
+      editorRulerColumn: 80,
+      setEditorRulerColumn: (column) =>
+        set({
+          editorRulerColumn: Math.max(
+            20,
+            Math.min(400, Math.round(column) || 80),
+          ),
+        }),
       uiFont: "geist",
       setUiFont: (font) => set({ uiFont: font }),
       editorFont: "system-mono",
@@ -101,6 +118,8 @@ export const useSettingsStore = create<SettingsState>()(
         compilerBackend: state.compilerBackend,
         defaultEngine: state.defaultEngine,
         vimMode: state.vimMode,
+        editorWrapMode: state.editorWrapMode,
+        editorRulerColumn: state.editorRulerColumn,
         uiFont: state.uiFont,
         editorFont: state.editorFont,
         uiFontSize: state.uiFontSize,
@@ -136,6 +155,14 @@ export const useSettingsStore = create<SettingsState>()(
             ...agentModels,
           },
           compileDocumentsByProject,
+          editorWrapMode:
+            saved.editorWrapMode === "ruler" ? "ruler" : current.editorWrapMode,
+          editorRulerColumn:
+            typeof saved.editorRulerColumn === "number" &&
+            saved.editorRulerColumn >= 20 &&
+            saved.editorRulerColumn <= 400
+              ? saved.editorRulerColumn
+              : current.editorRulerColumn,
         };
       },
     },

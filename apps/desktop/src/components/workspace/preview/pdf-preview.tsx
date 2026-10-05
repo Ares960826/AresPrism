@@ -1,5 +1,5 @@
 import { zoomCache } from "@/lib/workspace-view-cache";
-import { requestPreviewCompile } from "@/lib/preview-compile";
+import { requestPreviewCompile, saveAndCompile } from "@/lib/preview-compile";
 import { usePreviewCompileShortcut } from "@/hooks/use-preview-compile-shortcut";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
@@ -17,6 +17,7 @@ import {
   ChevronUpIcon,
   ChevronDownIcon,
   PictureInPicture2Icon,
+  CopyIcon,
 } from "lucide-react";
 import { writeFile, mkdir, exists } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
@@ -381,6 +382,12 @@ export function PdfPreview() {
   const pdfToolbarActions: ToolbarAction[] = useMemo(
     () => [
       {
+        id: "copy",
+        label: "Copy",
+        icon: <CopyIcon className="size-4" />,
+        hint: navigator.userAgent.includes("Mac") ? "⌘C" : "Ctrl+C",
+      },
+      {
         id: "proofread",
         label: "Proofread",
         icon: <SpellCheckIcon className="size-4" />,
@@ -398,6 +405,13 @@ export function PdfPreview() {
   const handlePdfToolbarAction = useCallback(
     (actionId: string) => {
       if (!pdfSelection) return;
+      if (actionId === "copy") {
+        // Copy the live selection (keeps line breaks), then close the popover.
+        const text = window.getSelection()?.toString() || pdfSelection.text;
+        void navigator.clipboard.writeText(text).catch(() => {});
+        setPdfSelection(null);
+        return;
+      }
       const label = pdfContextLabel;
       const sel = pdfSelection;
       setPdfSelection(null);
@@ -568,8 +582,11 @@ export function PdfPreview() {
     }
   }, []);
   const compileShortcut = useCallback(() => {
-    void handleCompile(true);
-  }, [handleCompile]);
+    setPdfError(null);
+    void saveAndCompile().catch((error) =>
+      setPdfError(formatCompileError(error)),
+    );
+  }, []);
   usePreviewCompileShortcut(compileShortcut);
 
   const handleCapture = async (result: CaptureResult) => {
@@ -681,7 +698,7 @@ export function PdfPreview() {
             PDF Preview
           </h2>
           <p className="mb-4 text-center text-muted-foreground text-sm">
-            Press Cmd+Enter to compile your document
+            Press Cmd+S or Cmd+Enter to compile your document
           </p>
           {isTexActive && (
             <Button
@@ -850,49 +867,48 @@ export function PdfPreview() {
             ),
           } satisfies OverflowToolbarItem,
         ]),
+    // The compile button lives in the editor toolbar; the preview only shows
+    // progress so floating previews still reflect a running build.
     ...(isSaving || isCompiling
       ? [
           {
             id: "status",
             label: isSaving ? "Saving" : "Compiling",
             node: (
-              <div className="flex size-7 items-center justify-center">
+              <div
+                className="flex size-7 items-center justify-center"
+                title={isSaving ? "Saving" : "Compiling"}
+              >
                 <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />
               </div>
             ),
           } satisfies OverflowToolbarItem,
         ]
-      : [
-          {
-            id: "refresh",
-            label: compileError ? "Retry" : pdfData ? "Recompile" : "Compile",
-            icon: <RefreshCwIcon className="size-4" />,
-            onSelect: () => {
-              if (isTexActive) void handleCompile(true);
-            },
-            node: (
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "size-7",
-                  compileError && "text-destructive hover:text-destructive",
-                )}
-                onClick={() => handleCompile(true)}
-                disabled={!isTexActive}
-                title={
-                  compileError
-                    ? "Retry compile"
-                    : pdfData
-                      ? "Recompile"
-                      : "Compile"
-                }
-              >
-                <RefreshCwIcon className="size-3.5" />
-              </Button>
-            ),
-          } satisfies OverflowToolbarItem,
-        ]),
+      : parseDetachedPane() === "preview"
+        ? [
+            // A floating preview window has no editor toolbar of its own.
+            {
+              id: "refresh",
+              label: compileError ? "Retry" : "Compile",
+              icon: <RefreshCwIcon className="size-4" />,
+              onSelect: compileShortcut,
+              node: (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "size-7",
+                    compileError && "text-destructive hover:text-destructive",
+                  )}
+                  onClick={compileShortcut}
+                  title={compileError ? "Retry compile" : "Compile"}
+                >
+                  <RefreshCwIcon className="size-3.5" />
+                </Button>
+              ),
+            } satisfies OverflowToolbarItem,
+          ]
+        : []),
     ...(pdfData
       ? ([
           {
@@ -1093,7 +1109,7 @@ export function PdfPreview() {
       className="relative flex h-full min-w-0 flex-col overflow-hidden bg-muted/50"
     >
       <OverflowToolbar
-        className="h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] border-border border-b bg-background px-1.5"
+        className="h-[calc(var(--workspace-topbar-height)+var(--titlebar-height))] border-border border-b bg-background px-1.5 pt-[var(--titlebar-height)]"
         items={previewToolbarItems}
         trailing={
           <>

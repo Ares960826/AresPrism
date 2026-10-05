@@ -1217,7 +1217,7 @@ export function PdfViewer({
     (e: React.MouseEvent) => {
       if (!onTextClick) return;
       const target = e.target as HTMLElement;
-      if (target.tagName === "text" && target.closest(".mupdf-text-layer")) {
+      if (target.tagName === "SPAN" && target.closest(".mupdf-text-layer")) {
         const text = target.textContent?.trim();
         if (text && text.length > 2) {
           onTextClick(text);

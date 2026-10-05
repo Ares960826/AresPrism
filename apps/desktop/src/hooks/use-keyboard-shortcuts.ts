@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { requestPreviewCompile } from "@/lib/preview-compile";
+import { saveAndCompile } from "@/lib/preview-compile";
 import { invoke } from "@tauri-apps/api/core";
 import {
   getAppZoomAction,
@@ -8,8 +8,21 @@ import {
   zoomOutApp,
   resetAppZoom,
 } from "@/lib/app-zoom";
-import { useDocumentStore } from "@/stores/document-store";
 import { useSettingsStore } from "@/stores/settings-store";
+
+/** Editors, inputs and text areas keep their native clipboard shortcuts. */
+export function isTextEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target.closest(".cm-editor")) return true;
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLInputElement) return true;
+  return target instanceof HTMLElement && target.isContentEditable;
+}
+
+function hasTextSelection(): boolean {
+  const selection = window.getSelection();
+  return !!selection && !selection.isCollapsed;
+}
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
@@ -36,27 +49,16 @@ export function useKeyboardShortcuts() {
       }
 
       if (e.defaultPrevented || e.isComposing || e.repeat) return;
+      // Cmd+S / Ctrl+S: save, then compile the paper (same as Cmd+Enter).
       if (
-        e.ctrlKey &&
-        !e.metaKey &&
+        (e.metaKey || e.ctrlKey) &&
         !e.shiftKey &&
         !e.altKey &&
         e.key.toLowerCase() === "s"
       ) {
         e.preventDefault();
-        void requestPreviewCompile(true).catch(() => {});
+        void saveAndCompile().catch(() => {});
         return;
-      }
-      if (e.metaKey && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        const state = useDocumentStore.getState();
-        state.setIsSaving(true);
-        state
-          .saveCurrentFile()
-          .catch(() => {})
-          .finally(() => {
-            setTimeout(() => state.setIsSaving(false), 500);
-          });
       }
 
       if (
@@ -68,12 +70,15 @@ export function useKeyboardShortcuts() {
         invoke("create_new_window").catch(console.error);
       }
 
-      // Cmd+X (macOS) / Ctrl+X (others): Capture & Ask
+      // Cmd+X (macOS) / Ctrl+X (others): Capture & Ask, but only when no text
+      // field owns the keystroke — there it must stay the native Cut.
       if (
         (e.metaKey || e.ctrlKey) &&
         e.key.toLowerCase() === "x" &&
         !e.shiftKey &&
-        !e.altKey
+        !e.altKey &&
+        !isTextEditingTarget(e.target) &&
+        !hasTextSelection()
       ) {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent("toggle-capture-mode"));

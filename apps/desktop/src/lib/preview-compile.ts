@@ -49,3 +49,21 @@ export async function requestPreviewCompile(force = false) {
     await compileFromPreview(payload);
   }
 }
+
+/** Cmd/Ctrl+S: save the active file, then compile the paper it belongs to.
+ *  Detached windows do not own buffers, so they only relay the compile; the
+ *  main window's compile queue saves every dirty file before compiling. */
+export async function saveAndCompile() {
+  if (parseDetachedPane() !== "preview") {
+    const state = useDocumentStore.getState();
+    state.setIsSaving(true);
+    try {
+      await state.saveCurrentFile();
+    } catch {
+      // The compile below retries the save and reports a real failure.
+    } finally {
+      setTimeout(() => useDocumentStore.getState().setIsSaving(false), 300);
+    }
+  }
+  await requestPreviewCompile(true);
+}
