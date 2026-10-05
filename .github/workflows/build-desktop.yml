@@ -17,6 +17,8 @@ permissions:
 env:
   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+  HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+  HAS_APPLE_NOTARY: ${{ secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}
 
 jobs:
   # ──────────────────────────────────────────────
@@ -175,7 +177,10 @@ jobs:
           echo "CXXFLAGS=-std=c++17" >> $GITHUB_ENV
           echo "CFLAGS=" >> $GITHUB_ENV
 
+      # Developer ID signing and notarization need a paid Apple account; without
+      # those secrets the app is ad-hoc signed, like local `pnpm build:desktop`.
       - name: Import Apple certificate
+        if: env.HAS_APPLE_CERTIFICATE == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -219,10 +224,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ZOTERO_CONSUMER_KEY: ${{ secrets.ZOTERO_CONSUMER_KEY }}
           ZOTERO_CONSUMER_SECRET: ${{ secrets.ZOTERO_CONSUMER_SECRET }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
         run: pnpm --filter @claude-prism/desktop tauri build --target aarch64-apple-darwin
 
       - name: Notarize DMG
+        if: env.HAS_APPLE_NOTARY == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -332,7 +338,10 @@ jobs:
           echo "CXXFLAGS=-std=c++17" >> $GITHUB_ENV
           echo "CFLAGS=" >> $GITHUB_ENV
 
+      # Developer ID signing and notarization need a paid Apple account; without
+      # those secrets the app is ad-hoc signed, like local `pnpm build:desktop`.
       - name: Import Apple certificate
+        if: env.HAS_APPLE_CERTIFICATE == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -376,10 +385,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ZOTERO_CONSUMER_KEY: ${{ secrets.ZOTERO_CONSUMER_KEY }}
           ZOTERO_CONSUMER_SECRET: ${{ secrets.ZOTERO_CONSUMER_SECRET }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
         run: pnpm --filter @claude-prism/desktop tauri build --target x86_64-apple-darwin
 
       - name: Notarize DMG
+        if: env.HAS_APPLE_NOTARY == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
